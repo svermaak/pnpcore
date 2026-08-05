@@ -61,12 +61,10 @@ jobs:
         dotnet test ./PnP.Core.Test/PnP.Core.Test.csproj --no-restore --verbosity normal --collect:"XPlat Code Coverage"
         dotnet test ./PnP.Core.Auth.Test/PnP.Core.Auth.Test.csproj --no-restore --verbosity normal --collect:"XPlat Code Coverage"
         dotnet test ./PnP.Core.Admin.Test/PnP.Core.Admin.Test.csproj --no-restore --verbosity normal --collect:"XPlat Code Coverage"
-        # PnP.Core.Provisioning.Test runs against a real tenant and cannot run in CI (migration decision D4).
-        # Only its "Offline" category - model and XML serializer round-trips, which need no SharePoint - is
-        # CI-safe. Enable the line below in migration phase 2, once those tests exist; running it now would
-        # fail with "no test matches the given testcase filter".
+        # PnP.Core.Provisioning.Test runs against a real tenant and cannot run in CI (migration decision D4),
+        # so only its "Offline" category runs here - model and XML serializer tests that need no SharePoint.
         # See pnpcore-files/migration/07-test-strategy.md
-        # dotnet test ./PnP.Core.Provisioning.Test/PnP.Core.Provisioning.Test.csproj --no-restore --verbosity normal --filter TestCategory=Offline --collect:"XPlat Code Coverage"
+        dotnet test ./PnP.Core.Provisioning.Test/PnP.Core.Provisioning.Test.csproj --no-restore --verbosity normal --filter TestCategory=Offline --collect:"XPlat Code Coverage"
       working-directory: src/sdk
     - name: Upload coverage to Codecov 📝
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

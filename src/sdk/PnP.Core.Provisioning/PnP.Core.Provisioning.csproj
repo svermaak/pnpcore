@@ -26,6 +26,20 @@
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<SignAssembly>true</SignAssembly>
 		<AssemblyOriginatorKeyFile>..\pnp.core.snk</AssemblyOriginatorKeyFile>
+		<!--
+		  CS1591 = missing XML doc comment on a publicly visible member.
+
+		  PnP.Core and PnP.Core.Admin are fully documented and do not need this. The provisioning
+		  engine is ported wholesale from PnP.Framework, which suppresses CS1591 in its own csproj,
+		  so a large part of the ported public surface has never carried doc comments - roughly 640
+		  members at the end of the model port. Writing those by hand mid-port would bury the actual
+		  migration diff in unrelated churn.
+
+		  Documenting the public surface is tracked as a migration phase 10 task; remove this
+		  suppression then. New code written for this project should still be documented - the
+		  suppression is a concession to the ported code, not a licence for it.
+		-->
+		<NoWarn>CS1591</NoWarn>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
