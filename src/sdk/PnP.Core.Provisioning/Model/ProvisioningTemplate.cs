@@ -1,5 +1,7 @@
-﻿using PnP.Core.Provisioning.Utilities;
-using PnP.Core.Provisioning.Connectors;
+﻿using PnP.Core.Provisioning.Connectors;
+using PnP.Core.Provisioning.Providers;
+using PnP.Core.Provisioning.Providers.Xml;
+using PnP.Core.Provisioning.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -884,25 +886,19 @@ namespace PnP.Core.Provisioning.Model
 
         #endregion
 
-        // ---------------------------------------------------------------------------------------------
-        // MIGRATION PHASE 2: restore ToXML(ITemplateFormatter) here.
-        //
-        // The original implementation was:
-        //
-        //     public string ToXML(ITemplateFormatter formatter = null)
-        //     {
-        //         formatter = formatter ?? new XMLPnPSchemaFormatter();
-        //         using (var stream = formatter.ToFormattedTemplate(this))
-        //         {
-        //             return XElement.Load(stream).ToString();
-        //         }
-        //     }
-        //
-        // It is held back because it depends on the whole serialization layer - ITemplateFormatter,
-        // TemplateProviderBase and XMLPnPSchemaFormatter - which is phase 2 (see migration doc
-        // 04-schema-and-serializers.md). Pulling those forward would drag the formatter chain into the
-        // model port for no benefit; nothing in phase 1 calls this method.
-        // ---------------------------------------------------------------------------------------------
+        /// <summary>
+        /// Serializes a template to XML
+        /// </summary>
+        /// <param name="formatter">ITemplateFormatter object</param>
+        /// <returns>Returns XML string for the given stream</returns>
+        public string ToXML(ITemplateFormatter formatter = null)
+        {
+            formatter = formatter ?? new XMLPnPSchemaFormatter();
+            using (var stream = formatter.ToFormattedTemplate(this))
+            {
+                return XElement.Load(stream).ToString();
+            }
+        }
     }
 
     /// <summary>

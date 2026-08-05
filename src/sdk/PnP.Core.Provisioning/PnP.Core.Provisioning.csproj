@@ -62,6 +62,12 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+		<!--
+		  Portable.Xaml backs the .pnp OpenXML package manifest, which is stored as XAML
+		  (Connectors\OpenXML\PnPPackage.cs). Carried over from PnP.Framework, which pins the same
+		  version. Only the .pnp package format needs it.
+		-->
+		<PackageReference Include="Portable.Xaml" Version="0.26.0" />
 	</ItemGroup>
 
 	<!-- System.IO.Packaging is required by the OpenXML (.pnp) template package connector, see Connectors\OpenXML.
@@ -97,6 +103,25 @@
 	<ItemGroup>
 		<ProjectReference Include="..\PnP.Core\PnP.Core.csproj" />
 		<ProjectReference Include="..\PnP.Core.Admin\PnP.Core.Admin.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!--
+		  The provisioning XML schemas ship as embedded resources: each XMLPnPSchemaV*Serializer loads its
+		  own .xsd by manifest resource name to validate templates. The resource name is derived from the
+		  root namespace plus the folder path, e.g.
+		    PnP.Core.Provisioning.Providers.Xml.ProvisioningSchema-2022-09.xsd
+		  so moving these files means updating the corresponding serializer.
+
+		  The matching .cs files are generated from these schemas with the .NET Framework xsd tool:
+		    xsd.exe ProvisioningSchema-2022-09.xsd /c /l:CS /n:PnP.Core.Provisioning.Providers.Xml.V202209
+		  See Providers\Xml\readme.md and migration doc 04-schema-and-serializers.md.
+		-->
+		<EmbeddedResource Include="Providers\Xml\ProvisioningSchema-2019-03.xsd" />
+		<EmbeddedResource Include="Providers\Xml\ProvisioningSchema-2019-09.xsd" />
+		<EmbeddedResource Include="Providers\Xml\ProvisioningSchema-2020-02.xsd" />
+		<EmbeddedResource Include="Providers\Xml\ProvisioningSchema-2021-03.xsd" />
+		<EmbeddedResource Include="Providers\Xml\ProvisioningSchema-2022-09.xsd" />
 	</ItemGroup>
 
 	<ItemGroup>

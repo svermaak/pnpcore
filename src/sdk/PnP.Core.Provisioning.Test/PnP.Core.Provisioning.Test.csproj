@@ -25,6 +25,18 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!--
+		  Template fixtures used by the offline round-trip tests. PnP Framework resolved these from the
+		  source tree via AppDomain.CurrentDomain.BaseDirectory plus "..\..\..", which breaks whenever the
+		  output layout changes; copying to the output directory is the PnP Core convention and is what
+		  the tests expect (see 07-test-strategy.md).
+		-->
+		<None Update="TestAssets\Templates\*.xml">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\PnP.Core.Provisioning\PnP.Core.Provisioning.csproj" />
 		<ProjectReference Include="..\PnP.Core.Admin\PnP.Core.Admin.csproj" />
 		<ProjectReference Include="..\PnP.Core.Test.Common\PnP.Core.Test.Common.csproj" />

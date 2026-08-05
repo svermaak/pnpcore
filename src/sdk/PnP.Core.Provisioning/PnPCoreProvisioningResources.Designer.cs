@@ -59,5 +59,14 @@ namespace PnP.Core.Provisioning {
                 resourceCulture = value;
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to The Provisioning Template URI {0} is not valid..
+        /// </summary>
+        internal static string Provisioning_Formatter_Invalid_Template_URI {
+            get {
+                return ResourceManager.GetString("Provisioning_Formatter_Invalid_Template_URI", resourceCulture);
+            }
+        }
     }
 }
