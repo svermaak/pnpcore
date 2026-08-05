@@ -34,3 +34,6 @@ CleanPackage "PnP.Core" 10 $ApiKey
 CleanPackage "PnP.Core.Auth" 10 $ApiKey
 CleanPackage "PnP.Core.Admin" 10 $ApiKey
 CleanPackage "PnP.Framework" 10 $ApiKey
+# Enable together with the PnP.Core.Provisioning nuget push in build.ps1, in migration phase 10.
+# See pnpcore-files/migration/08-phases-and-sequencing.md
+#CleanPackage "PnP.Core.Provisioning" 10 $ApiKey
