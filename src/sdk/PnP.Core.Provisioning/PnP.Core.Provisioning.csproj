@@ -125,6 +125,22 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!--
+		  The out-of-the-box site templates, one per web template plus configuration. BaseTemplateManager
+		  loads these by manifest resource name to work out what a freshly created site of the same kind
+		  looks like, so extraction can report only the differences.
+
+		  Only the SPO set ships. PnP Framework also had _2010/_2013/_2016/_2019 prefixes in its resource
+		  naming, but never any files behind them - see BaseTemplates\BaseTemplateManager.cs.
+
+		  These are ~4.3 MB of XML. That cost exists in PnP Framework today too; whether to keep carrying
+		  it in the package is open question Q3 in the migration docs.
+		-->
+		<EmbeddedResource Include="BaseTemplates\SPO\*.xml" />
+		<EmbeddedResource Include="BaseTemplates\Common\*.xml" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<Compile Update="PnPCoreProvisioningResources.Designer.cs">
 			<DesignTime>True</DesignTime>
 			<AutoGen>True</AutoGen>
