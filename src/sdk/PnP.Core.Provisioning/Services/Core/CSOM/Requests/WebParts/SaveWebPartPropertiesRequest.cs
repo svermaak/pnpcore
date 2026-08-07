@@ -20,6 +20,14 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.WebParts
     /// properties live in <c>WebPart.Properties</c>, which is a property bag and needs
     /// <c>SetFieldValue</c> calls instead - that path arrives with <c>ObjectPages</c> in phase 7,
     /// which is the only consumer that needs it.</para>
+    /// <para><b><c>ZoneIndex</c> is deliberately absent.</b> A first version set it here and
+    /// SharePoint rejected the whole request with <i>Field or property "ZoneIndex" does not
+    /// exist</i>. The CSOM assembly confirms why: on <c>SP.WebParts.WebPart</c>, <c>Title</c>,
+    /// <c>TitleUrl</c>, <c>Hidden</c> and <c>ExportMode</c> carry setters, but <c>ZoneIndex</c> is
+    /// <b>read-only</b>. A web part is repositioned through
+    /// <c>WebPartDefinition.MoveWebPartTo(zoneId, zoneIndex)</c> - see
+    /// <see cref="MoveWebPartToRequest"/>. Position and properties are two separate operations in
+    /// CSOM, and conflating them fails the request as a whole rather than just that one property.</para>
     /// </remarks>
     internal sealed class SaveWebPartPropertiesRequest : WebPartRequestBase, IRequest<object>
     {
@@ -28,10 +36,9 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.WebParts
         private readonly string serverRelativeFileUrl;
         private readonly Guid webPartId;
         private readonly string title;
-        private readonly int? zoneIndex;
 
         internal SaveWebPartPropertiesRequest(Guid siteId, Guid webId, string serverRelativeFileUrl, Guid webPartId,
-            string title = null, int? zoneIndex = null)
+            string title = null)
         {
             if (string.IsNullOrEmpty(serverRelativeFileUrl))
             {
@@ -43,7 +50,6 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.WebParts
             this.serverRelativeFileUrl = serverRelativeFileUrl;
             this.webPartId = webPartId;
             this.title = title;
-            this.zoneIndex = zoneIndex;
         }
 
         public object Result { get; private set; }
@@ -89,20 +95,6 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.WebParts
                         ObjectPathId = webPartId2.ToString(),
                         Name = "Title",
                         SetParameter = new Parameter { Type = "String", Value = title }
-                    }
-                });
-            }
-
-            if (zoneIndex.HasValue)
-            {
-                paths.Add(new ActionObjectPath
-                {
-                    Action = new SetPropertyAction
-                    {
-                        Id = idProvider.GetActionId(),
-                        ObjectPathId = webPartId2.ToString(),
-                        Name = "ZoneIndex",
-                        SetParameter = new Parameter { Type = "Number", Value = zoneIndex.Value }
                     }
                 });
             }

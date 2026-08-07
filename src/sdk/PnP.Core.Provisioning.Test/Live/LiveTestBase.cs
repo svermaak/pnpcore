@@ -106,6 +106,19 @@ namespace PnP.Core.Provisioning.Test.Live
         }
 
         /// <summary>
+        /// Gets a context against the configured non-group (communication) test site.
+        /// </summary>
+        /// <remarks>
+        /// The default test site is group connected, and several modern features exist only on a
+        /// communication site - the site footer most obviously. Testing those against the group site
+        /// produces a green run that proves nothing, because the handler correctly does nothing there.
+        /// </remarks>
+        protected static async Task<PnPContext> GetNoGroupContextAsync(int id = 0)
+        {
+            return await TestCommon.Instance.GetContextAsync(TestCommon.NoGroupTestSite, id).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Reports whether the context's web is a NoScript site.
         /// </summary>
         /// <remarks>

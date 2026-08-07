@@ -104,6 +104,19 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM
         /// <summary>SP.Utilities.Utility</summary>
         internal const string Utility = "{16f43e7e-bf35-475d-b677-9dc61e549339}";
 
+        /// <summary>
+        /// SP.RegionalSettings.
+        /// </summary>
+        /// <remarks>
+        /// Needed because <b>REST cannot write regional settings at all</b> - see backlog T1.
+        /// Note it carries its own <c>Update()</c>, so the change is committed on the settings
+        /// object rather than on the web.
+        /// </remarks>
+        internal const string RegionalSettings = "{84c424a9-a1d6-46ba-8398-c46257ecd25b}";
+
+        /// <summary>SP.TimeZone</summary>
+        internal const string TimeZone = "{5519d02c-ce37-4b91-b61d-a1cefe0fc85e}";
+
         #endregion
 
         #region Information policy - Microsoft.Office.Client.Policy

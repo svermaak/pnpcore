@@ -106,15 +106,30 @@ namespace PnP.Core.Provisioning.Test.Offline.Csom
         public void SaveWebPartPropertiesRequest_SetsPropertiesThenSaves()
         {
             string payload = Serialize(new SaveWebPartPropertiesRequest(SiteId, WebId, PageUrl, WebPartId,
-                title: "My Web Part", zoneIndex: 3));
+                title: "My Web Part"));
 
             StringAssert.Contains(payload, "Name=\"Title\"");
             StringAssert.Contains(payload, "My Web Part");
-            StringAssert.Contains(payload, "Name=\"ZoneIndex\"");
 
             // The setters stage the change; SaveWebPartChanges is what persists it. Same trap as
             // Audit.Update() and the term store's CommitAll().
             StringAssert.Contains(payload, "Name=\"SaveWebPartChanges\"");
+        }
+
+        [TestMethod]
+        [TestCategory("Offline")]
+        public void SaveWebPartPropertiesRequest_NeverSetsZoneIndex()
+        {
+            // Found live: SharePoint rejects the whole request with "Field or property
+            // 'ZoneIndex' does not exist". On SP.WebParts.WebPart, Title/TitleUrl/Hidden/
+            // ExportMode have setters but ZoneIndex is read-only - repositioning goes through
+            // MoveWebPartTo instead. Guarding it here so it cannot creep back in.
+            string payload = Serialize(new SaveWebPartPropertiesRequest(SiteId, WebId, PageUrl, WebPartId,
+                title: "My Web Part"));
+
+            Assert.IsFalse(payload.Contains("ZoneIndex", StringComparison.Ordinal),
+                "ZoneIndex is read-only on SP.WebParts.WebPart - setting it fails the entire request. " +
+                "Use MoveWebPartToRequest to reposition a web part.");
         }
 
         [TestMethod]

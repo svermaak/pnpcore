@@ -33,22 +33,51 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
         /// <summary>
         /// A minimal, universally available web part - the XML a template would carry.
         /// </summary>
+        /// <remarks>
+        /// <para><b>This must be the v2 (<c>.dwp</c>) schema, not v3 (<c>.webpart</c>).</b> A first
+        /// version used v3 and SharePoint rejected it outright:</para>
+        /// <para><i>"Incompatible Web Part markup detected. Use *.dwp Web Part XML instead of
+        /// *.webpart Web Part XML."</i></para>
+        /// <para>Classic <b>list form pages</b> only accept the older format. A wiki or web part
+        /// page accepts v3, so which schema is valid depends on the page - something
+        /// <c>ObjectListInstance</c> will have to get right in phase 6, since it targets exactly
+        /// these list form pages.</para>
+        /// </remarks>
         private const string ContentEditorWebPartXml =
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
-            "<webParts>" +
-            "<webPart xmlns=\"http://schemas.microsoft.com/WebPart/v3\">" +
-            "<metaData>" +
-            "<type name=\"Microsoft.SharePoint.WebPartPages.ContentEditorWebPart, Microsoft.SharePoint, Version=16.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c\" />" +
-            "<importErrorMessage>Cannot import this web part.</importErrorMessage>" +
-            "</metaData>" +
-            "<data>" +
-            "<properties>" +
-            "<property name=\"Title\" type=\"string\">PnPCoreProvisioningTest WebPart</property>" +
-            "<property name=\"ChromeType\" type=\"chrometype\">TitleOnly</property>" +
-            "</properties>" +
-            "</data>" +
-            "</webPart>" +
-            "</webParts>";
+            "<WebPart xmlns=\"http://schemas.microsoft.com/WebPart/v2\">" +
+            "<Assembly>Microsoft.SharePoint, Version=16.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c</Assembly>" +
+            "<TypeName>Microsoft.SharePoint.WebPartPages.ContentEditorWebPart</TypeName>" +
+            "<Title>PnPCoreProvisioningTest WebPart</Title>" +
+            "<FrameType>TitleBarOnly</FrameType>" +
+            "</WebPart>";
+
+        /// <summary>
+        /// Runs one step of a multi-request chain, reporting which step failed and why.
+        /// </summary>
+        /// <remarks>
+        /// A bare <c>CSOM service exception</c> from a five-step lifecycle identifies nothing. This
+        /// names the failing step and prints SharePoint's own message, which is what turned
+        /// "web parts do not work" into "the markup was the wrong schema version".
+        /// </remarks>
+        private static async Task StepAsync(string label, Func<Task> step)
+        {
+            try
+            {
+                await step().ConfigureAwait(false);
+                Console.WriteLine($"  {label}: OK");
+            }
+            catch (AssertFailedException)
+            {
+                Console.WriteLine($"  {label}: ASSERTION FAILED");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  {label}: FAILED{Environment.NewLine}{Describe(ex)}");
+                throw;
+            }
+        }
 
         #region T18 - classic web parts
 
@@ -104,32 +133,39 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
                     Assert.AreNotEqual(Guid.Empty, added.Id, "The added web part has no id.");
                     Console.WriteLine($"  added web part {added.Id} in zone '{added.ZoneId}'");
 
-                    // --- enumerate -------------------------------------------------------
-                    List<WebPartDefinitionInfo> definitions = await CsomRequestSender.SendAsync(context,
-                        new GetWebPartDefinitionsRequest(siteId, webId, pageUrl)).ConfigureAwait(false);
+                    // Each step is labelled, because a bare "CSOM service exception" from a five
+                    // step chain says nothing about which request is at fault.
+                    await StepAsync("enumerate", async () =>
+                    {
+                        List<WebPartDefinitionInfo> definitions = await CsomRequestSender.SendAsync(context,
+                            new GetWebPartDefinitionsRequest(siteId, webId, pageUrl)).ConfigureAwait(false);
 
-                    Assert.IsTrue(definitions.Any(d => d.Id == added.Id),
-                        $"The added web part {added.Id} was not found when enumerating. Found: " +
-                        string.Join(", ", definitions.Select(d => d.Id)));
+                        Assert.IsTrue(definitions.Any(d => d.Id == added.Id),
+                            $"The added web part {added.Id} was not found when enumerating. Found: " +
+                            string.Join(", ", definitions.Select(d => d.Id)));
+                    }).ConfigureAwait(false);
 
-                    // --- update ----------------------------------------------------------
-                    await CsomRequestSender.SendAsync(context,
-                        new SaveWebPartPropertiesRequest(siteId, webId, pageUrl, added.Id,
-                            title: $"{TestPrefix}Renamed", zoneIndex: 1)).ConfigureAwait(false);
+                    await StepAsync("save properties", async () =>
+                        await CsomRequestSender.SendAsync(context,
+                            new SaveWebPartPropertiesRequest(siteId, webId, pageUrl, added.Id,
+                                title: $"{TestPrefix}Renamed")).ConfigureAwait(false)).ConfigureAwait(false);
 
-                    // --- move ------------------------------------------------------------
-                    await CsomRequestSender.SendAsync(context,
-                        new MoveWebPartToRequest(siteId, webId, pageUrl, added.Id, "Main", 2)).ConfigureAwait(false);
+                    await StepAsync("move", async () =>
+                        await CsomRequestSender.SendAsync(context,
+                            new MoveWebPartToRequest(siteId, webId, pageUrl, added.Id, "Main", 2)).ConfigureAwait(false)).ConfigureAwait(false);
 
-                    // --- delete ----------------------------------------------------------
-                    await CsomRequestSender.SendAsync(context,
-                        new DeleteWebPartRequest(siteId, webId, pageUrl, added.Id)).ConfigureAwait(false);
+                    await StepAsync("delete", async () =>
+                        await CsomRequestSender.SendAsync(context,
+                            new DeleteWebPartRequest(siteId, webId, pageUrl, added.Id)).ConfigureAwait(false)).ConfigureAwait(false);
 
-                    List<WebPartDefinitionInfo> afterDelete = await CsomRequestSender.SendAsync(context,
-                        new GetWebPartDefinitionsRequest(siteId, webId, pageUrl)).ConfigureAwait(false);
+                    await StepAsync("verify deleted", async () =>
+                    {
+                        List<WebPartDefinitionInfo> afterDelete = await CsomRequestSender.SendAsync(context,
+                            new GetWebPartDefinitionsRequest(siteId, webId, pageUrl)).ConfigureAwait(false);
 
-                    Assert.IsFalse(afterDelete.Any(d => d.Id == added.Id),
-                        "The web part was still present after DeleteWebPartRequest.");
+                        Assert.IsFalse(afterDelete.Any(d => d.Id == added.Id),
+                            "The web part was still present after DeleteWebPartRequest.");
+                    }).ConfigureAwait(false);
                 }
                 finally
                 {

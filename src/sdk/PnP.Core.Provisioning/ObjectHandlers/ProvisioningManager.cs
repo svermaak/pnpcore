@@ -110,6 +110,15 @@ namespace PnP.Core.Provisioning.ObjectHandlers
 
                     tokenParser ??= await TokenParser.CreateAsync(context, template, applyingInformation).ConfigureAwait(false);
 
+                    // Custom token providers run before the first handler - a token has to exist
+                    // before anything can reference it. This is why ObjectExtensibilityHandlers has
+                    // a second entry point rather than doing the work in ProvisionObjectsAsync.
+                    ObjectExtensibilityHandlers extensibility = objectHandlers.OfType<ObjectExtensibilityHandlers>().FirstOrDefault();
+                    if (extensibility != null)
+                    {
+                        tokenParser = await extensibility.AddExtendedTokensAsync(context, template, tokenParser, configuration).ConfigureAwait(false);
+                    }
+
                     int step = 2;
 
                     // Remove artefacts a NoScript site would reject
@@ -193,21 +202,90 @@ namespace PnP.Core.Provisioning.ObjectHandlers
         {
             var objectHandlers = new List<ObjectHandlerBase>();
 
-            // MIGRATION PHASES 5-8: each handler is added here as it lands. The list below mirrors
+            // MIGRATION PHASES 6-8: each handler is added here as it lands. The list below mirrors
             // PnP Framework's ApplyRemoteTemplate ordering exactly, including the three passes over
             // fields/content types/lists, so porting a handler is a one line change rather than a
             // sequencing decision.
             //
-            //  Phase 5 (wave 1): RegionalSettings, SupportedUILanguages, SiteSettings, WebSettings,
-            //                    Features, PropertyBagEntry, CustomActions, Theme, SiteHeader,
-            //                    SiteFooter, ClientSidePages, SyntexModels, SearchSettings,
-            //                    PersistTemplateInfo, ExtensibilityHandlers
+            //  Phase 5 (wave 1): DONE - everything below is registered.
             //  Phase 6 (wave 2): Localization, Field x3, ContentType x2, ListInstance x3,
             //                    ListInstanceDataRows, Files, SiteSecurity, TermGroups
             //  Phase 7 (wave 3): AuditSettings, SitePolicy, Workflows, Pages, PageContents,
             //                    Publishing, ComposedLook, ImageRenditions, Navigation
             //  Phase 8:          Tenant, ApplicationLifecycleManagement
-            _ = applyingInformation;
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.RegionalSettings))
+            {
+                objectHandlers.Add(new ObjectRegionalSettings());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SupportedUILanguages))
+            {
+                objectHandlers.Add(new ObjectSupportedUILanguages());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Features))
+            {
+                objectHandlers.Add(new ObjectFeatures());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Pages))
+            {
+                objectHandlers.Add(new ObjectClientSidePages());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SiteHeader))
+            {
+                objectHandlers.Add(new ObjectSiteHeaderSettings());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SiteFooter))
+            {
+                objectHandlers.Add(new ObjectSiteFooterSettings());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.CustomActions))
+            {
+                objectHandlers.Add(new ObjectCustomActions());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SearchSettings))
+            {
+                objectHandlers.Add(new ObjectSearchSettings());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.PropertyBagEntries))
+            {
+                objectHandlers.Add(new ObjectPropertyBagEntry());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.WebSettings))
+            {
+                objectHandlers.Add(new ObjectWebSettings());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SiteSettings))
+            {
+                objectHandlers.Add(new ObjectSiteSettings());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Theme))
+            {
+                objectHandlers.Add(new ObjectTheme());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.ExtensibilityProviders))
+            {
+                objectHandlers.Add(new ObjectExtensibilityHandlers());
+            }
+
+            // Last, and gated: recording what was applied needs property bag write access, and the
+            // engine is deliberately usable by callers who do not have it.
+            if (applyingInformation.PersistTemplateInfo)
+            {
+                objectHandlers.Add(new ObjectPersistTemplateInfo());
+            }
+
             _ = calledFromHierarchy;
 
             return objectHandlers;
@@ -294,7 +372,79 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             // MIGRATION PHASES 5-8: as with BuildApplyHandlers, handlers are registered here as
             // they land. Extraction uses a single pass - the Step.Export variant of the field,
             // content type and list handlers - rather than the three passes apply needs.
-            _ = configuration;
+
+            // An empty Handlers list means "everything", matching how ExtractConfiguration is
+            // documented and how PnP Framework's Handlers.All behaved.
+            bool all = configuration.Handlers.Count == 0;
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.RegionalSettings))
+            {
+                objectHandlers.Add(new ObjectRegionalSettings());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SupportedUILanguages))
+            {
+                objectHandlers.Add(new ObjectSupportedUILanguages());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.CustomActions))
+            {
+                objectHandlers.Add(new ObjectCustomActions());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SearchSettings))
+            {
+                objectHandlers.Add(new ObjectSearchSettings());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.Pages))
+            {
+                objectHandlers.Add(new ObjectClientSidePageContents());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SiteHeader))
+            {
+                objectHandlers.Add(new ObjectSiteHeaderSettings());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SiteFooter))
+            {
+                objectHandlers.Add(new ObjectSiteFooterSettings());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.PropertyBagEntries))
+            {
+                objectHandlers.Add(new ObjectPropertyBagEntry());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.WebSettings))
+            {
+                objectHandlers.Add(new ObjectWebSettings());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SiteSettings))
+            {
+                objectHandlers.Add(new ObjectSiteSettings());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SyntexModels))
+            {
+                objectHandlers.Add(new ObjectSyntexModels());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.ExtensibilityProviders))
+            {
+                objectHandlers.Add(new ObjectExtensibilityHandlers());
+            }
+
+            // Always last, and always registered: it reads two entries ObjectPropertyBagEntry
+            // produced, lifts them into the template's own metadata and deletes them from the
+            // property bag. Registering it conditionally would leave engine bookkeeping in the
+            // extracted template.
+            objectHandlers.Add(new ObjectRetrieveTemplateInfo());
+
+            // ObjectFeatures and ObjectTheme are apply-only - both return false from WillExtract,
+            // so registering them here would only add a no-op to the progress count.
 
             return objectHandlers;
         }
