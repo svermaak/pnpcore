@@ -48,17 +48,6 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             return _willExtract.Value;
         }
 
-        /// <summary>
-        /// Whether the context's web is a subsite, loading what the answer depends on.
-        /// </summary>
-        private static async Task<bool> IsSubSiteAsync(PnPContext context)
-        {
-            await context.Web.LoadAsync(w => w.ServerRelativeUrl).ConfigureAwait(false);
-            await context.Site.LoadAsync(s => s.ServerRelativeUrl).ConfigureAwait(false);
-
-            return IsSubSite(context.Web);
-        }
-
         #region Apply
 
         public override async Task<TokenParser> ProvisionObjectsAsync(PnPContext context, ProvisioningTemplate template,

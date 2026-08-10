@@ -212,12 +212,19 @@ namespace PnP.Core.Provisioning.Test.Live.Handlers
                 layoutTemplate.Publishing.PageLayouts.Add(new PageLayoutModel { Path = first });
                 layoutTemplate.Publishing.PageLayouts.Add(new PageLayoutModel { Path = second, IsDefault = true });
 
+                Console.WriteLine($"Asking for {layoutTemplate.Publishing.PageLayouts.Count} layout(s): " +
+                    string.Join(", ", layoutTemplate.Publishing.PageLayouts.Select(l => $"{l.Path} (default={l.IsDefault})")));
+
                 await ApplyAsync(context, layoutTemplate).ConfigureAwait(false);
 
                 written = await ReadPropertiesAsync(siteUrl).ConfigureAwait(false);
 
                 Console.WriteLine($"{AvailablePageLayoutsKey} = {written[AvailablePageLayoutsKey]}");
                 Console.WriteLine($"{DefaultPageLayoutKey} = {written[DefaultPageLayoutKey]}");
+
+                Assert.IsFalse(string.IsNullOrEmpty(written[AvailablePageLayoutsKey]),
+                    $"'{AvailablePageLayoutsKey}' was not written. The apply reported no problem, so " +
+                    "the handler either resolved no layouts or wrote them somewhere else.");
 
                 XElement layouts = XElement.Parse(written[AvailablePageLayoutsKey]);
                 Assert.AreEqual("pagelayouts", layouts.Name.LocalName);

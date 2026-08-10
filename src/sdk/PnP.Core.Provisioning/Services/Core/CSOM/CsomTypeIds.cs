@@ -155,5 +155,20 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM
         internal const string ProjectPolicy = "{ec5e0a70-0cc3-408f-a4dc-1bb3495aac75}";
 
         #endregion
+
+        #region Tenant administration - Microsoft.Online.SharePoint.TenantAdministration
+
+        /// <summary>
+        /// Microsoft.Online.SharePoint.TenantAdministration.Tenant.
+        /// </summary>
+        /// <remarks>
+        /// A constructor path, not a static method: every tenant operation hangs off a
+        /// <c>new Tenant(context)</c>. The same value is hardcoded in <c>PnP.Core.Admin</c>'s
+        /// tenant requests, which is where it was checked against rather than being extracted
+        /// again.
+        /// </remarks>
+        internal const string Tenant = "{268004ae-ef6b-4e9b-8425-127220d84719}";
+
+        #endregion
     }
 }

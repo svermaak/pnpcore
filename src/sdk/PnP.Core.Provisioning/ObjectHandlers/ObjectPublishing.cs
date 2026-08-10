@@ -11,7 +11,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using CoreList = PnP.Core.Model.SharePoint.IList;
 using PageLayoutModel = PnP.Core.Provisioning.Model.PageLayout;
 using PublishingModel = PnP.Core.Provisioning.Model.Publishing;
 
@@ -42,8 +41,8 @@ namespace PnP.Core.Provisioning.ObjectHandlers
         private const string AvailablePageLayoutsKey = PublishingPropertyBagXml.AvailablePageLayoutsKey;
         private const string DefaultPageLayoutKey = PublishingPropertyBagXml.DefaultPageLayoutKey;
 
-        /// <summary>The master page gallery, where page layouts live.</summary>
-        private const int MasterPageGalleryTemplateType = 116;
+        /// <summary>The master page gallery, where page layouts live, relative to a web.</summary>
+        private const string MasterPageGalleryPath = "_catalogs/masterpage";
 
         public override string Name => "Publishing";
 
@@ -72,6 +71,9 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             {
                 return parser;
             }
+
+            WriteMessage($"Processing publishing settings: {publishing.AvailableWebTemplates.Count} web " +
+                $"template(s), {publishing.PageLayouts.Count} page layout(s)", ProvisioningMessageType.Progress);
 
             if (await context.Web.IsNoScriptSiteAsync().ConfigureAwait(false))
             {
@@ -142,11 +144,17 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 return;
             }
 
-            Dictionary<string, PageLayoutEntry> catalog = await ReadPageLayoutCatalogAsync(context).ConfigureAwait(false);
+            Dictionary<string, PageLayoutEntry> catalog = await ReadPageLayoutCatalogAsync(
+                context, m => WriteMessage(m, ProvisioningMessageType.Warning)).ConfigureAwait(false);
+
+            // Progress, not just a log line. PnP Framework reports each artefact it processes, and
+            // without it a run that quietly does nothing is indistinguishable from one that worked.
+            WriteMessage($"Matching {publishing.PageLayouts.Count} requested page layout(s) against " +
+                $"{catalog.Count} in the master page gallery", ProvisioningMessageType.Progress);
 
             if (catalog.Count == 0)
             {
-                string warning = "The master page gallery could not be read, so the page layouts were not set.";
+                string warning = "The master page gallery holds no page layouts, so none were set.";
                 context.Logger?.LogWarning("{Source}: {Message}", Constants.LOGGING_SOURCE, warning);
                 WriteMessage(warning, ProvisioningMessageType.Warning);
                 return;
@@ -178,6 +186,13 @@ namespace PnP.Core.Provisioning.ObjectHandlers
 
             if (available.Count == 0)
             {
+                // Not a silent return. Every layout having been skipped is already reported one by
+                // one above, but "the template asked for layouts and the site ended up with none"
+                // is the fact the caller needs, and it read as success for one whole live run.
+                string warning = $"None of the {publishing.PageLayouts.Count} page layout(s) in the " +
+                    "template could be resolved, so the available page layouts were left unchanged.";
+                context.Logger?.LogWarning("{Source}: {Message}", Constants.LOGGING_SOURCE, warning);
+                WriteMessage(warning, ProvisioningMessageType.Warning);
                 return;
             }
 
@@ -194,6 +209,9 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             try
             {
                 await SetPropertiesAsync(context, properties).ConfigureAwait(false);
+
+                WriteMessage($"Wrote {available.Count} page layout(s) to {string.Join(" and ", properties.Keys)}",
+                    ProvisioningMessageType.Progress);
             }
             catch (Exception ex)
             {
@@ -309,69 +327,66 @@ namespace PnP.Core.Provisioning.ObjectHandlers
         /// Reads the page layouts from the <b>root</b> web's master page gallery, keyed by file name.
         /// </summary>
         /// <remarks>
-        /// The root web, even when applying to a subsite: page layouts live in the site collection's
-        /// gallery and the property bag XML addresses them by an id from there. Keyed by file name
-        /// because a template's <c>Path</c> may be a bare name or a full url.
+        /// <para>The root web, even when applying to a subsite: page layouts live in the site
+        /// collection's gallery and the property bag XML addresses them by an id from there. Keyed by
+        /// file name because a template's <c>Path</c> may be a bare name or a full url.</para>
+        /// <para><b>Read through the folder rather than the list.</b> The list route needs the
+        /// gallery found by template type and then a CAML load, and it wants <c>Site.RootWeb</c>
+        /// materialised first; the folder route asks for the one path that is fixed on every site
+        /// and gets <c>Name</c> and <c>UniqueId</c> in the same call. Both were tried live - the
+        /// list route came back empty on a freshly published site.</para>
+        /// <para>Only the gallery's root folder is read. Layouts live there; the subfolders hold
+        /// display templates and language resources, which are not page layouts.</para>
         /// </remarks>
-        private static async Task<Dictionary<string, PageLayoutEntry>> ReadPageLayoutCatalogAsync(PnPContext context)
+        private static async Task<Dictionary<string, PageLayoutEntry>> ReadPageLayoutCatalogAsync(
+            PnPContext context, Action<string> reportWarning)
         {
             var catalog = new Dictionary<string, PageLayoutEntry>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
-                // Site.RootWeb, not a cloned context: PnP Core reaches the root web through the same
-                // context, and the rest of this project already does it that way.
-                IWeb rootWeb = await context.Site.RootWeb.GetAsync(
-                    w => w.ServerRelativeUrl,
-                    w => w.Lists.QueryProperties(l => l.Id, l => l.TemplateType)).ConfigureAwait(false);
+                await context.Site.LoadAsync(s => s.RootWeb).ConfigureAwait(false);
 
-                CoreList gallery = rootWeb.Lists.AsRequested()
-                    .FirstOrDefault(l => (int)l.TemplateType == MasterPageGalleryTemplateType);
-
-                if (gallery == null)
-                {
-                    return catalog;
-                }
+                IWeb rootWeb = context.Site.RootWeb;
+                await rootWeb.LoadAsync(w => w.ServerRelativeUrl).ConfigureAwait(false);
 
                 string webUrl = rootWeb.ServerRelativeUrl.TrimEnd('/');
 
-                await gallery.LoadItemsByCamlQueryAsync(
-                    "<View Scope=\"RecursiveAll\"><Query></Query></View>").ConfigureAwait(false);
+                IFolder gallery = await rootWeb.GetFolderByServerRelativeUrlAsync(
+                    $"{webUrl}/{MasterPageGalleryPath}",
+                    f => f.Files.QueryProperties(file => file.Name, file => file.UniqueId,
+                        file => file.ServerRelativeUrl)).ConfigureAwait(false);
 
-                foreach (IListItem item in gallery.Items.AsRequested())
+                foreach (IFile file in gallery.Files.AsRequested())
                 {
-                    string fileRef = ValueOf(item, "FileRef");
-                    string uniqueId = ValueOf(item, "UniqueId");
-
-                    if (string.IsNullOrEmpty(fileRef) || string.IsNullOrEmpty(uniqueId))
+                    if (string.IsNullOrEmpty(file.Name) || file.UniqueId == Guid.Empty)
                     {
                         continue;
                     }
 
-                    catalog[NameOf(fileRef)] = new PageLayoutEntry
+                    catalog[file.Name] = new PageLayoutEntry
                     {
-                        UniqueId = uniqueId.Trim('{', '}'),
+                        UniqueId = file.UniqueId.ToString(),
 
                         // Site relative, as the property bag XML expects - the gallery stores a
-                        // server relative FileRef and SharePoint does not reconcile the two.
-                        SiteRelativeUrl = fileRef.StartsWith(webUrl, StringComparison.OrdinalIgnoreCase)
-                            ? fileRef.Substring(webUrl.Length).TrimStart('/')
-                            : fileRef.TrimStart('/'),
+                        // server relative url and SharePoint does not reconcile the two.
+                        SiteRelativeUrl = file.ServerRelativeUrl.StartsWith(webUrl, StringComparison.OrdinalIgnoreCase)
+                            ? file.ServerRelativeUrl.Substring(webUrl.Length).TrimStart('/')
+                            : file.ServerRelativeUrl.TrimStart('/'),
                     };
                 }
             }
             catch (Exception ex)
             {
-                context.Logger?.LogDebug(ex, "{Source}: the master page gallery could not be read.",
-                    Constants.LOGGING_SOURCE);
+                // With the reason, not without it. "Could not be read" on its own sent an earlier
+                // run of the live test looking in the wrong place.
+                string warning = $"The master page gallery could not be read, so the page layouts " +
+                    $"were not set: {ErrorText.Describe(ex)}";
+                context.Logger?.LogWarning(ex, "{Source}: {Message}", Constants.LOGGING_SOURCE, warning);
+                reportWarning?.Invoke(warning);
             }
 
             return catalog;
-        }
-
-        private static string ValueOf(IListItem item, string fieldName)
-        {
-            return item.Values.TryGetValue(fieldName, out object value) ? value?.ToString() : null;
         }
 
         private static string NameOf(string pathOrName)

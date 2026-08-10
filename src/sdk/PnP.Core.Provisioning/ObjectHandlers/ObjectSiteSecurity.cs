@@ -836,21 +836,6 @@ namespace PnP.Core.Provisioning.ObjectHandlers
         }
 
         /// <summary>
-        /// Whether the context's web is a subsite.
-        /// </summary>
-        /// <remarks>
-        /// Breaking role inheritance only means anything on a subsite; a site collection's root web
-        /// has nothing to inherit from, and asking it to break throws.
-        /// </remarks>
-        private static async Task<bool> IsSubSiteAsync(PnPContext context)
-        {
-            await context.Site.LoadAsync(s => s.RootWeb.QueryProperties(w => w.Id)).ConfigureAwait(false);
-            await context.Web.LoadAsync(w => w.Id).ConfigureAwait(false);
-
-            return context.Site.RootWeb.Id != context.Web.Id;
-        }
-
-        /// <summary>
         /// Reads an associated group, treating "there isn't one" as null rather than an exception.
         /// </summary>
         /// <remarks>

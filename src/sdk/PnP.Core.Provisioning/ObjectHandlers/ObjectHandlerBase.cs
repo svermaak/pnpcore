@@ -435,6 +435,27 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             return !web.ServerRelativeUrl.TrimEnd('/').Equals(siteUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Whether the context's web is a sub site, loading what the answer depends on first.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Use this, not <see cref="IsSubSite(IWeb)"/>, from anywhere that can await.</b>
+        /// The synchronous form has to answer <c>false</c> when the properties are not loaded,
+        /// because <c>WillProvision</c> runs before the engine has loaded the web and cannot await -
+        /// so it answers "root web" for a subsite whenever it is asked too early. Handlers that skip
+        /// work on a subsite need the answer to be right, and ask here instead.</para>
+        /// <para>Compared by id rather than by url: the ids are exact, where the urls need trailing
+        /// slash and casing handled, and the root site collection's url is the single character
+        /// <c>/</c>. The synchronous form has no choice, since it may only use what is loaded.</para>
+        /// </remarks>
+        internal static async Task<bool> IsSubSiteAsync(PnPContext context)
+        {
+            await context.Site.LoadAsync(s => s.RootWeb.QueryProperties(w => w.Id)).ConfigureAwait(false);
+            await context.Web.LoadAsync(w => w.Id).ConfigureAwait(false);
+
+            return context.Site.RootWeb.Id != context.Web.Id;
+        }
+
         #endregion
     }
 }

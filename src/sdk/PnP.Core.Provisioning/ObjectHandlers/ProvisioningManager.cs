@@ -212,7 +212,7 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             //                    ListInstanceDataRows, Files, SiteSecurity, TermGroups
             //  Phase 7 (wave 3): AuditSettings, SitePolicy, Workflows, Pages, PageContents,
             //                    Publishing, ComposedLook, ImageRenditions, Navigation
-            //  Phase 8:          Tenant, ApplicationLifecycleManagement
+            //  Phase 8:          ApplicationLifecycleManagement (done), Tenant (done)
 
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.RegionalSettings))
             {
@@ -284,6 +284,24 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 // After all three passes: a row can carry a lookup into any list in the template,
                 // so every list has to exist and have its columns before any row is written.
                 objectHandlers.Add(new ObjectListInstanceDataRows());
+            }
+
+            // Tenant settings come before ALM, as in PnP Framework: a site design or a storage
+            // entity the template defines is a token that later handlers resolve.
+            //
+            // Not when applying a hierarchy. ObjectHierarchyTenant already applied the tenant element
+            // once, before any site in the sequence existed; running it again per site would repeat
+            // every tenant-wide write once per site in the hierarchy.
+            if (!calledFromHierarchy && applyingInformation.HandlersToProcess.HasFlag(Handlers.Tenant))
+            {
+                objectHandlers.Add(new ObjectTenant());
+            }
+
+            // Before the pages, as in PnP Framework: an app can bring the web parts and columns a
+            // page then places, so installing it afterwards is too late.
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.ApplicationLifecycleManagement))
+            {
+                objectHandlers.Add(new ObjectApplicationLifecycleManagement());
             }
 
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Pages))
@@ -392,8 +410,6 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             {
                 objectHandlers.Add(new ObjectPersistTemplateInfo());
             }
-
-            _ = calledFromHierarchy;
 
             return objectHandlers;
         }
@@ -604,6 +620,11 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 objectHandlers.Add(new ObjectSyntexModels());
             }
 
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.ApplicationLifecycleManagement))
+            {
+                objectHandlers.Add(new ObjectApplicationLifecycleManagement());
+            }
+
             // Always registered, and deliberately after every handler that collects resource values:
             // it writes the files they filled. Its own WillExtract gates on PersistMultiLanguageResources.
             objectHandlers.Add(new ObjectLocalization());
@@ -762,9 +783,18 @@ namespace PnP.Core.Provisioning.ObjectHandlers
 
         private static List<ObjectHierarchyHandlerBase> BuildHierarchyApplyHandlers()
         {
-            // MIGRATION PHASE 8: ObjectHierarchyTenant, ObjectHierarchySequenceTermGroups,
-            // ObjectHierarchySequenceSites, ObjectTeams, ObjectAzureActiveDirectory - in that order.
-            return new List<ObjectHierarchyHandlerBase>();
+            // The order is PnP Framework's and it is load bearing: tenant settings and term groups
+            // precede the sites, because a site design or a term set the sites are created from has
+            // to exist - and have published its tokens - before they are created. Teams come after
+            // the sites because a team's site is one of them.
+            return new List<ObjectHierarchyHandlerBase>
+            {
+                new ObjectHierarchyTenant(),
+                new ObjectHierarchySequenceTermGroups(),
+                new ObjectHierarchySequenceSites(),
+                new ObjectTeams(),
+                new ObjectAzureActiveDirectory(),
+            };
         }
 
         private static List<ObjectHierarchyHandlerBase> BuildHierarchyExtractHandlers(ExtractConfiguration configuration)

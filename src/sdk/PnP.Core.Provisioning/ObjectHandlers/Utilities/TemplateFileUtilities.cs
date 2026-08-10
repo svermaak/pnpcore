@@ -1,3 +1,4 @@
+using PnP.Core.Provisioning.Connectors;
 using PnP.Core.Provisioning.Model;
 using System;
 using System.Collections.Generic;
@@ -27,14 +28,27 @@ namespace PnP.Core.Provisioning.ObjectHandlers.Utilities
         /// <returns>The file's bytes, or null when the connector has no such file.</returns>
         internal static byte[] TryGetFileBytes(ProvisioningTemplate template, string source)
         {
-            if (template?.Connector == null || string.IsNullOrEmpty(source))
+            return TryGetFileBytes(template?.Connector, source);
+        }
+
+        /// <summary>
+        /// Opens a file from a connector directly.
+        /// </summary>
+        /// <remarks>
+        /// A tenant template's files hang off the <em>hierarchy</em>'s connector, not off any one
+        /// template's - so <c>ObjectHierarchyTenant</c> has a connector and no template to read it
+        /// from.
+        /// </remarks>
+        internal static byte[] TryGetFileBytes(FileConnectorBase connector, string source)
+        {
+            if (connector == null || string.IsNullOrEmpty(source))
             {
                 return null;
             }
 
             try
             {
-                return ConnectorFileHelper.GetFileBytes(template.Connector, source);
+                return ConnectorFileHelper.GetFileBytes(connector, source);
             }
             catch (Exception)
             {
