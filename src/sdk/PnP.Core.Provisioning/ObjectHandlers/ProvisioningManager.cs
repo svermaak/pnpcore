@@ -229,6 +229,63 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 objectHandlers.Add(new ObjectFeatures());
             }
 
+            // The three passes. ObjectField, ObjectContentType and ObjectListInstance are each
+            // registered more than once with a different Step, because a lookup column cannot be
+            // created before the list it points at and a template routinely defines both.
+            //
+            // Pass 1 - fields, content types and lists, minus anything that references a list.
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Fields)
+                || applyingInformation.HandlersToProcess.HasFlag(Handlers.Lists))
+            {
+                objectHandlers.Add(new ObjectField(FieldAndListProvisioningStepHelper.Step.ListAndStandardFields));
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.ContentTypes))
+            {
+                objectHandlers.Add(new ObjectContentType(FieldAndListProvisioningStepHelper.Step.ListAndStandardFields));
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Lists))
+            {
+                objectHandlers.Add(new ObjectListInstance(FieldAndListProvisioningStepHelper.Step.ListAndStandardFields));
+            }
+
+            // Pass 2 - the lookup and calculated columns held back from pass 1, and the content type
+            // links to them.
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Fields)
+                || applyingInformation.HandlersToProcess.HasFlag(Handlers.Lists))
+            {
+                objectHandlers.Add(new ObjectField(FieldAndListProvisioningStepHelper.Step.LookupFields));
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.ContentTypes))
+            {
+                objectHandlers.Add(new ObjectContentType(FieldAndListProvisioningStepHelper.Step.LookupFields));
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Lists))
+            {
+                objectHandlers.Add(new ObjectListInstance(FieldAndListProvisioningStepHelper.Step.LookupFields));
+            }
+
+            // Between passes 2 and 3, as in PnP Framework: a file may be uploaded into a library the
+            // second pass created, and a list view created in the third pass may point at it.
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Files))
+            {
+                objectHandlers.Add(new ObjectFiles());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Lists))
+            {
+                // Pass 3 - everything that can reference a column: views, default values, folders.
+                // Only ObjectListInstance has work in this pass.
+                objectHandlers.Add(new ObjectListInstance(FieldAndListProvisioningStepHelper.Step.ListSettings));
+
+                // After all three passes: a row can carry a lookup into any list in the template,
+                // so every list has to exist and have its columns before any row is written.
+                objectHandlers.Add(new ObjectListInstanceDataRows());
+            }
+
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Pages))
             {
                 objectHandlers.Add(new ObjectClientSidePages());
@@ -247,6 +304,16 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.CustomActions))
             {
                 objectHandlers.Add(new ObjectCustomActions());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.TermGroups))
+            {
+                objectHandlers.Add(new ObjectTermGroups());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SiteSecurity))
+            {
+                objectHandlers.Add(new ObjectSiteSecurity());
             }
 
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SearchSettings))
@@ -387,9 +454,39 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 objectHandlers.Add(new ObjectSupportedUILanguages());
             }
 
+            // Extraction needs only one pass - the three-pass ordering exists to satisfy SharePoint
+            // on the way in, and a read has no such constraint.
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.Fields))
+            {
+                objectHandlers.Add(new ObjectField(FieldAndListProvisioningStepHelper.Step.Export));
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.ContentTypes))
+            {
+                objectHandlers.Add(new ObjectContentType(FieldAndListProvisioningStepHelper.Step.Export));
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.Lists))
+            {
+                objectHandlers.Add(new ObjectListInstance(FieldAndListProvisioningStepHelper.Step.Export));
+
+                // After the lists, so the rows have list instances to attach themselves to.
+                objectHandlers.Add(new ObjectListInstanceDataRows());
+            }
+
             if (all || configuration.Handlers.Contains(ConfigurationHandler.CustomActions))
             {
                 objectHandlers.Add(new ObjectCustomActions());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.Taxonomy))
+            {
+                objectHandlers.Add(new ObjectTermGroups());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SiteSecurity))
+            {
+                objectHandlers.Add(new ObjectSiteSecurity());
             }
 
             if (all || configuration.Handlers.Contains(ConfigurationHandler.SearchSettings))
@@ -431,6 +528,10 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             {
                 objectHandlers.Add(new ObjectSyntexModels());
             }
+
+            // Always registered, and deliberately after every handler that collects resource values:
+            // it writes the files they filled. Its own WillExtract gates on PersistMultiLanguageResources.
+            objectHandlers.Add(new ObjectLocalization());
 
             if (all || configuration.Handlers.Contains(ConfigurationHandler.ExtensibilityProviders))
             {

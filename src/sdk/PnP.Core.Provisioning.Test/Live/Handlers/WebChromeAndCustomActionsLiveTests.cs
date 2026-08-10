@@ -167,6 +167,7 @@ namespace PnP.Core.Provisioning.Test.Live.Handlers
 
                 bool originalEnabled = before.Footer.Enabled;
                 string linkName = $"{TestPrefix}FooterLink";
+                int linksBefore = before.Footer.FooterLinks.Count;
 
                 try
                 {
@@ -200,6 +201,14 @@ namespace PnP.Core.Provisioning.Test.Live.Handlers
                         Assert.IsTrue(after.Footer.Enabled, "The footer should be enabled.");
                         Assert.IsTrue(after.Footer.FooterLinks.Any(l => l.DisplayName == linkName),
                             $"The link '{linkName}' was not written to the footer.");
+
+                        // RemoveExistingNodes was set, so exactly one link should remain. Asserting
+                        // the COUNT is what catches SaveMenuState merging instead of replacing -
+                        // "the new link is present" stayed true while the footer doubled every run,
+                        // reaching 501 links before anything noticed.
+                        Assert.AreEqual(1, after.Footer.FooterLinks.Count,
+                            $"RemoveExistingNodes should leave exactly one link; found {after.Footer.FooterLinks.Count}. " +
+                            "SaveMenuState merges - nodes must be marked IsDeleted, not omitted.");
                     }
                 }
                 finally
@@ -217,13 +226,17 @@ namespace PnP.Core.Provisioning.Test.Live.Handlers
                             RemoveExistingNodes = true,
                         };
 
-                        foreach (SiteFooterLink link in before.Footer.FooterLinks)
+                        // Anything this suite created is dropped rather than restored. Putting the
+                        // links back verbatim is what let 500 of them accumulate: each run wrote
+                        // back what it found, and the merge added the new one on top.
+                        foreach (SiteFooterLink link in before.Footer.FooterLinks
+                            .Where(l => l.DisplayName == null || !l.DisplayName.StartsWith(TestPrefix, StringComparison.Ordinal)))
                         {
                             restore.FooterLinks.Add(link);
                         }
 
                         await manager.ApplyTemplateAsync(new ProvisioningTemplate { Footer = restore }).ConfigureAwait(false);
-                        Console.WriteLine("Restored the original footer.");
+                        Console.WriteLine($"Restored the footer with {restore.FooterLinks.Count} link(s) (was {linksBefore}).");
                     }
                     catch (Exception ex)
                     {

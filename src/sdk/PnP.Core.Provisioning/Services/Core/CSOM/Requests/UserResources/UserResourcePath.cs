@@ -1,4 +1,9 @@
+using PnP.Core.Services.Core.CSOM;
+using PnP.Core.Services.Core.CSOM.QueryAction;
+using PnP.Core.Services.Core.CSOM.QueryIdentities;
+using PnP.Core.Services.Core.CSOM.Utils;
 using System;
+using System.Collections.Generic;
 
 namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.UserResources
 {
@@ -49,6 +54,11 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.UserResources
         /// </summary>
         internal bool ParentUpdateTakesFlag { get; }
 
+        /// <summary>
+        /// Emits the parent object path when it cannot be written as a plain identity.
+        /// </summary>
+        private readonly Func<IIdProvider, List<ActionObjectPath>, int> parentPathBuilder;
+
         internal UserResourcePath(string parentIdentity, string propertyName,
             string parentUpdateMethod = "Update", bool parentUpdateTakesFlag = false)
         {
@@ -66,6 +76,55 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.UserResources
             PropertyName = propertyName;
             ParentUpdateMethod = parentUpdateMethod;
             ParentUpdateTakesFlag = parentUpdateTakesFlag;
+        }
+
+        private UserResourcePath(Func<IIdProvider, List<ActionObjectPath>, int> parentPath, string propertyName,
+            string parentUpdateMethod = "Update", bool parentUpdateTakesFlag = false)
+        {
+            parentPathBuilder = parentPath ?? throw new ArgumentNullException(nameof(parentPath));
+
+            if (string.IsNullOrEmpty(propertyName))
+            {
+                throw new ArgumentException("A resource property name is required.", nameof(propertyName));
+            }
+
+            PropertyName = propertyName;
+            ParentUpdateMethod = parentUpdateMethod;
+            ParentUpdateTakesFlag = parentUpdateTakesFlag;
+        }
+
+        /// <summary>
+        /// Adds the object paths that reach the parent, and returns the id of the last one.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Not every parent has a usable identity string.</b> A web, list, field or content
+        /// type does - the id is stable and SharePoint resolves it directly. A user custom action
+        /// does not: its identity form is undocumented, and the obvious guess
+        /// (<c>…:web:{webId}:useraction:{id}</c>) is rejected by the server. Those parents are
+        /// reached by walking the object graph instead - <c>Web</c> → <c>UserCustomActions</c> →
+        /// <c>GetById(id)</c> - which is what the CSOM client itself emits and cannot be wrong about.
+        /// </para>
+        /// <para>Prefer the identity where one is known: it is two fewer object paths per request,
+        /// and these go out in batches of one per language.</para>
+        /// </remarks>
+        internal int AppendParentPath(IIdProvider idProvider, List<ActionObjectPath> paths)
+        {
+            if (parentPathBuilder != null)
+            {
+                return parentPathBuilder(idProvider, paths);
+            }
+
+            int parentIdentityId = idProvider.GetActionId();
+            paths.Add(new ActionObjectPath
+            {
+                ObjectPath = new Identity
+                {
+                    Id = parentIdentityId,
+                    Name = ParentIdentity,
+                },
+            });
+
+            return parentIdentityId;
         }
 
         /// <summary>A localizable property on a web. Persisted with <c>Web.Update()</c>.</summary>
@@ -91,6 +150,22 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.UserResources
         }
 
         /// <summary>
+        /// A localizable property on a <b>list</b> column. Persisted with
+        /// <c>Field.UpdateAndPushChanges(true)</c>.
+        /// </summary>
+        /// <remarks>
+        /// A list column is a distinct object from the site column it derives from, with its own
+        /// identity and its own resources. Localizing the site column does not reach it, which is
+        /// why a list's <c>&lt;FieldRef DisplayName="{res:…}"&gt;</c> needs this path rather than
+        /// <see cref="ForField"/>.
+        /// </remarks>
+        internal static UserResourcePath ForListField(Guid siteId, Guid webId, Guid listId, Guid fieldId, string propertyName)
+        {
+            return new UserResourcePath(CsomIdentity.ListField(siteId, webId, listId, fieldId), propertyName,
+                "UpdateAndPushChanges", parentUpdateTakesFlag: true);
+        }
+
+        /// <summary>
         /// A localizable property on a content type. Persisted with <c>ContentType.Update(true)</c>
         /// so child content types follow.
         /// </summary>
@@ -106,7 +181,71 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.UserResources
         /// </summary>
         internal static UserResourcePath ForUserCustomAction(Guid siteId, Guid webId, Guid customActionId, string propertyName)
         {
-            return new UserResourcePath(CsomIdentity.UserCustomAction(siteId, webId, customActionId), propertyName);
+            return ForCustomActionOn(CsomIdentity.Web(siteId, webId), customActionId, propertyName);
+        }
+
+        /// <summary>
+        /// A localizable property on a <b>site collection</b> scoped user custom action. Persisted
+        /// with <c>UserCustomAction.Update()</c>.
+        /// </summary>
+        /// <remarks>
+        /// Separate from <see cref="ForUserCustomAction"/> because the two collections are different
+        /// objects - looking a site-scoped action up in the web's collection finds nothing.
+        /// </remarks>
+        internal static UserResourcePath ForSiteUserCustomAction(Guid siteId, Guid webId, Guid customActionId, string propertyName)
+        {
+            return ForCustomActionOn(CsomIdentity.Site(siteId, webId), customActionId, propertyName);
+        }
+
+        /// <summary>
+        /// A localizable property on a <b>list</b> scoped user custom action. Persisted with
+        /// <c>UserCustomAction.Update()</c>.
+        /// </summary>
+        internal static UserResourcePath ForListUserCustomAction(Guid siteId, Guid webId, Guid listId,
+            Guid customActionId, string propertyName)
+        {
+            return ForCustomActionOn(CsomIdentity.List(siteId, webId, listId), customActionId, propertyName);
+        }
+
+        /// <summary>
+        /// Walks <c>&lt;owner&gt;.UserCustomActions.GetById(id)</c>.
+        /// </summary>
+        private static UserResourcePath ForCustomActionOn(string ownerIdentity, Guid customActionId, string propertyName)
+        {
+            return new UserResourcePath((idProvider, paths) =>
+            {
+                int ownerId = idProvider.GetActionId();
+                paths.Add(new ActionObjectPath
+                {
+                    ObjectPath = new Identity { Id = ownerId, Name = ownerIdentity },
+                });
+
+                int collectionId = idProvider.GetActionId();
+                paths.Add(new ActionObjectPath
+                {
+                    ObjectPath = new Property { Id = collectionId, ParentId = ownerId, Name = "UserCustomActions" },
+                });
+
+                int actionId = idProvider.GetActionId();
+                paths.Add(new ActionObjectPath
+                {
+                    ObjectPath = new ObjectPathMethod
+                    {
+                        Id = actionId,
+                        ParentId = collectionId,
+                        Name = "GetById",
+                        Parameters = new MethodParameter
+                        {
+                            Properties = new List<Parameter>
+                            {
+                                new Parameter { Type = "Guid", Value = customActionId },
+                            },
+                        },
+                    },
+                });
+
+                return actionId;
+            }, propertyName);
         }
     }
 

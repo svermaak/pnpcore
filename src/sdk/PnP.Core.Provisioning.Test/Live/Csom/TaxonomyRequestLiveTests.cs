@@ -5,6 +5,7 @@ using PnP.Core.Provisioning.Services.Core.CSOM;
 using PnP.Core.Provisioning.Services.Core.CSOM.Requests.Taxonomy;
 using PnP.Core.QueryModel;
 using PnP.Core.Services;
+using PnP.Core.Services.Core.CSOM.Requests;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -26,6 +27,29 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
     public class TaxonomyRequestLiveTests : LiveTestBase
     {
         private static string UniqueName(string what) => $"{TestPrefix}{what}_{DateTime.UtcNow:HHmmssfff}";
+
+        /// <summary>
+        /// Sends a taxonomy request and prints what SharePoint said if it fails.
+        /// </summary>
+        /// <remarks>
+        /// <b>Two of these tests fail intermittently under the full suite and pass in isolation</b>,
+        /// and the bare <c>CsomServiceException</c> banner says nothing about why. Every send goes
+        /// through here so the next such failure arrives with the server's own message attached -
+        /// guessing at this has already cost more than the wrapper does.
+        /// </remarks>
+        private static async Task<T> SendAsync<T>(PnPContext context, IRequest<T> request)
+        {
+            try
+            {
+                return await CsomRequestSender.SendAsync(context, request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"TAXONOMY REQUEST FAILED ({request.GetType().Name}):");
+                Console.WriteLine(Describe(ex));
+                throw;
+            }
+        }
 
         /// <summary>
         /// Deletes a term group by id, emptying it first, tolerating its absence.
@@ -54,7 +78,7 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 try
                 {
-                    TermGroupInfo created = await CsomRequestSender.SendAsync(context,
+                    TermGroupInfo created = await SendAsync(context,
                         new CreateTermGroupRequest(groupName, groupId, "Created by a live test")).ConfigureAwait(false);
 
                     Assert.IsNotNull(created, "CreateTermGroupRequest returned no result.");
@@ -90,16 +114,16 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 try
                 {
-                    await CsomRequestSender.SendAsync(context,
+                    await SendAsync(context,
                         new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
 
-                    TermSetInfo termSet = await CsomRequestSender.SendAsync(context,
+                    TermSetInfo termSet = await SendAsync(context,
                         new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
 
                     Assert.IsNotNull(termSet, "CreateTermSetRequest returned no result.");
                     Assert.AreEqual(termSetId, termSet.Id, "The term set id was not preserved.");
 
-                    TermInfo term = await CsomRequestSender.SendAsync(context,
+                    TermInfo term = await SendAsync(context,
                         new CreateTermRequest(termSetId, parentIsTermSet: true, UniqueName("Term"), termId, 1033))
                         .ConfigureAwait(false);
 
@@ -127,13 +151,13 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 try
                 {
-                    await CsomRequestSender.SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermRequest(termSetId, true, UniqueName("Parent"), parentTermId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermRequest(termSetId, true, UniqueName("Parent"), parentTermId, 1033)).ConfigureAwait(false);
 
                     // CreateTerm hangs off TermSetItem, the shared base of TermSet and Term, so the
                     // same request creates a child term - only the parent lookup differs.
-                    TermInfo child = await CsomRequestSender.SendAsync(context,
+                    TermInfo child = await SendAsync(context,
                         new CreateTermRequest(parentTermId, parentIsTermSet: false, UniqueName("Child"), childTermId, 1033))
                         .ConfigureAwait(false);
 
@@ -160,11 +184,11 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 try
                 {
-                    await CsomRequestSender.SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermRequest(termSetId, true, "Primary", termId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermRequest(termSetId, true, "Primary", termId, 1033)).ConfigureAwait(false);
 
-                    await CsomRequestSender.SendAsync(context,
+                    await SendAsync(context,
                         new AddTermLabelRequest(termId, "Synonym", 1033, isDefaultForLanguage: false)).ConfigureAwait(false);
 
                     // Read back through Graph: the labels collection should now carry both.
@@ -199,15 +223,15 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 try
                 {
-                    await CsomRequestSender.SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermRequest(termSetId, true, "Term", termId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermRequest(termSetId, true, "Term", termId, 1033)).ConfigureAwait(false);
 
                     // S1 verdict: Graph collapses these two into one bare key/value pair.
-                    await CsomRequestSender.SendAsync(context,
+                    await SendAsync(context,
                         new SetTermCustomPropertyRequest(termId, "SharedKey", "SharedValue", isLocal: false)).ConfigureAwait(false);
 
-                    await CsomRequestSender.SendAsync(context,
+                    await SendAsync(context,
                         new SetTermCustomPropertyRequest(termId, "LocalKey", "LocalValue", isLocal: true)).ConfigureAwait(false);
 
                     ITermSet set = await context.TermStore.Groups.GetById(groupId.ToString())
@@ -242,16 +266,16 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 try
                 {
-                    await CsomRequestSender.SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermRequest(termSetId, true, "Retired", termId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Set"), termSetId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermRequest(termSetId, true, "Retired", termId, 1033)).ConfigureAwait(false);
 
                     // S1 verdict: no Graph equivalent at all. Verified here only in that the call
                     // succeeds - Graph cannot report the flag back, which is the gap.
-                    await CsomRequestSender.SendAsync(context,
+                    await SendAsync(context,
                         new DeprecateTermRequest(termId, deprecate: true)).ConfigureAwait(false);
 
-                    await CsomRequestSender.SendAsync(context,
+                    await SendAsync(context,
                         new DeprecateTermRequest(termId, deprecate: false)).ConfigureAwait(false);
                 }
                 finally
@@ -275,12 +299,12 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 try
                 {
-                    await CsomRequestSender.SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Source"), sourceSetId, 1033)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Target"), targetSetId, 1033)).ConfigureAwait(false);
-                    await CsomRequestSender.SendAsync(context, new CreateTermRequest(sourceSetId, true, "Shared", sourceTermId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermGroupRequest(UniqueName("Group"), groupId)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Source"), sourceSetId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermSetRequest(groupId, UniqueName("Target"), targetSetId, 1033)).ConfigureAwait(false);
+                    await SendAsync(context, new CreateTermRequest(sourceSetId, true, "Shared", sourceTermId, 1033)).ConfigureAwait(false);
 
-                    TermInfo reused = await CsomRequestSender.SendAsync(context,
+                    TermInfo reused = await SendAsync(context,
                         new ReuseTermRequest(targetSetId, parentIsTermSet: true, sourceTermId)).ConfigureAwait(false);
 
                     Assert.IsNotNull(reused, "ReuseTermRequest returned no result.");
@@ -308,8 +332,8 @@ namespace PnP.Core.Provisioning.Test.Live.Csom
 
                 // createIfMissing: false so a read-only probe cannot provision taxonomy as a side
                 // effect. A site with no scoped group yet is a legitimate outcome.
-                TermGroupInfo group = await CsomRequestSender.SendAsync(context,
-                    new GetSiteCollectionTermGroupRequest(siteId, webId, createIfMissing: false)).ConfigureAwait(false);
+                TermGroupInfo group = await SendAsync(context,
+                        new GetSiteCollectionTermGroupRequest(siteId, webId, createIfMissing: false)).ConfigureAwait(false);
 
                 if (group == null || group.Id == Guid.Empty)
                 {

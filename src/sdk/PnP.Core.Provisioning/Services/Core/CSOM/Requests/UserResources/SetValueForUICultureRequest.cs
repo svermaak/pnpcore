@@ -54,15 +54,7 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM.Requests.UserResources
         {
             var result = new List<ActionObjectPath>();
 
-            int parentIdentityId = idProvider.GetActionId();
-            result.Add(new ActionObjectPath
-            {
-                ObjectPath = new Identity
-                {
-                    Id = parentIdentityId,
-                    Name = resource.ParentIdentity
-                }
-            });
+            int parentIdentityId = resource.AppendParentPath(idProvider, result);
 
             // e.g. Web.TitleResource
             int resourcePropertyId = idProvider.GetActionId();

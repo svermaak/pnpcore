@@ -3,6 +3,9 @@ using PnP.Core.Model;
 using PnP.Core.Model.SharePoint;
 using PnP.Core.Provisioning.Model;
 using PnP.Core.Provisioning.Model.Configuration;
+using PnP.Core.Provisioning.ObjectHandlers.Utilities;
+using PnP.Core.Provisioning.Services.Core.CSOM;
+using PnP.Core.Provisioning.Services.Core.CSOM.Requests.UserResources;
 using PnP.Core.QueryModel;
 using PnP.Core.Services;
 using System;
@@ -79,24 +82,26 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 if (!IsSubSite(web))
                 {
                     await ApplyScopeAsync(context, context.Site.UserCustomActions,
-                        template.CustomActions.SiteCustomActions, parser, isNoScriptSite, "site").ConfigureAwait(false);
+                        template.CustomActions.SiteCustomActions, parser, isNoScriptSite, siteScoped: true).ConfigureAwait(false);
                 }
 
                 await ApplyScopeAsync(context, context.Web.UserCustomActions,
-                    template.CustomActions.WebCustomActions, parser, isNoScriptSite, "web").ConfigureAwait(false);
+                    template.CustomActions.WebCustomActions, parser, isNoScriptSite, siteScoped: false).ConfigureAwait(false);
 
                 return parser;
             }
         }
 
         private async Task ApplyScopeAsync(PnPContext context, IUserCustomActionCollection collection,
-            IEnumerable<CustomActionModel> customActions, TokenParser parser, bool isNoScriptSite, string scope)
+            IEnumerable<CustomActionModel> customActions, TokenParser parser, bool isNoScriptSite, bool siteScoped)
         {
             List<CustomActionModel> wanted = customActions?.ToList() ?? new List<CustomActionModel>();
             if (wanted.Count == 0)
             {
                 return;
             }
+
+            string scope = siteScoped ? "site" : "web";
 
             // AsRequested rather than ToListAsync: the collection was loaded with its parent above,
             // and .NET 10 makes an unqualified ToListAsync ambiguous between PnP Core's queryable
@@ -125,7 +130,7 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                     continue;
                 }
 
-                WarnOnUnsupportedResourceTokens(context, customAction);
+                IUserCustomAction target;
 
                 if (existing == null)
                 {
@@ -137,16 +142,62 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                     context.Logger?.LogDebug("{Source}: adding {Scope} scoped custom action '{Name}'.",
                         Constants.LOGGING_SOURCE, scope, customAction.Name);
 
-                    existingActions.Add(await collection.AddAsync(BuildOptions(customAction, parser)).ConfigureAwait(false));
+                    target = await collection.AddAsync(BuildOptions(customAction, parser)).ConfigureAwait(false);
+                    existingActions.Add(target);
                 }
                 else
                 {
                     await UpdateAsync(context, existing, customAction, parser).ConfigureAwait(false);
+                    target = existing;
                 }
+
+                await LocalizeAsync(context, target, customAction, parser, siteScoped).ConfigureAwait(false);
             }
         }
 
-        private static AddUserCustomActionOptions BuildOptions(CustomActionModel customAction, TokenParser parser)
+        /// <summary>
+        /// Writes the per-language title and description, when the template uses <c>{res:}</c> tokens.
+        /// </summary>
+        /// <remarks>
+        /// <b>Backlog T6.</b> This is what the phase-5 warning deferred: until the user resource
+        /// requests were wired up, a template carrying a resource token wrote the literal token as
+        /// the action's title. The default-language value is still applied by the add or update
+        /// above - this adds the other languages on top.
+        /// </remarks>
+        private async Task LocalizeAsync(PnPContext context, IUserCustomAction customActionOnSite,
+            CustomActionModel customAction, TokenParser parser, bool siteScoped)
+        {
+            bool localizesTitle = UserResources.ContainsResourceToken(customAction.Title);
+            bool localizesDescription = UserResources.ContainsResourceToken(customAction.Description);
+
+            if (!localizesTitle && !localizesDescription)
+            {
+                return;
+            }
+
+            await customActionOnSite.LoadAsync(a => a.Id).ConfigureAwait(false);
+            (Guid siteId, Guid webId) = await CsomRequestSender.GetSiteAndWebIdAsync(context).ConfigureAwait(false);
+
+            UserResourcePath PathFor(string property) => siteScoped
+                ? UserResourcePath.ForSiteUserCustomAction(siteId, webId, customActionOnSite.Id, property)
+                : UserResourcePath.ForUserCustomAction(siteId, webId, customActionOnSite.Id, property);
+
+            if (localizesTitle)
+            {
+                await UserResources.TrySetAsync(context, PathFor(ResourceProperty.Title), customAction.Title, parser,
+                    $"the title of custom action '{customAction.Name}'", m => WriteMessage(m, ProvisioningMessageType.Warning))
+                    .ConfigureAwait(false);
+            }
+
+            if (localizesDescription)
+            {
+                await UserResources.TrySetAsync(context, PathFor(ResourceProperty.Description), customAction.Description, parser,
+                    $"the description of custom action '{customAction.Name}'", m => WriteMessage(m, ProvisioningMessageType.Warning))
+                    .ConfigureAwait(false);
+            }
+        }
+
+        internal static AddUserCustomActionOptions BuildOptions(CustomActionModel customAction, TokenParser parser)
         {
             return new AddUserCustomActionOptions
             {
@@ -175,7 +226,7 @@ namespace PnP.Core.Provisioning.ObjectHandlers
         /// Brings an existing custom action in line with the template, updating only when something
         /// actually differs.
         /// </summary>
-        private static async Task UpdateAsync(PnPContext context, IUserCustomAction existing, CustomActionModel customAction, TokenParser parser)
+        internal static async Task UpdateAsync(PnPContext context, IUserCustomAction existing, CustomActionModel customAction, TokenParser parser)
         {
             bool dirty = false;
 
@@ -218,22 +269,6 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             }
         }
 
-        private void WarnOnUnsupportedResourceTokens(PnPContext context, CustomActionModel customAction)
-        {
-            if (!ContainsResourceToken(customAction.Title) && !ContainsResourceToken(customAction.Description))
-            {
-                return;
-            }
-
-            string message = string.Format(System.Globalization.CultureInfo.CurrentCulture,
-                "The custom action '{0}' uses a {{res:...}} token. Per-language values are written by " +
-                "ObjectLocalization, which lands in phase 6 - only the default language value was applied.",
-                customAction.Name);
-
-            context.Logger?.LogWarning("{Source}: {Message}", Constants.LOGGING_SOURCE, message);
-            WriteMessage(message, ProvisioningMessageType.Warning);
-        }
-
         #endregion
 
         #region Extract
@@ -248,10 +283,13 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 bool isSubSite = IsSubSite(web);
 
                 var customActions = new CustomActions();
+                ProvisioningTemplateCreationInformation creationInformation = configuration?.ToCreationInformation();
 
                 foreach (IUserCustomAction customAction in web.UserCustomActions.AsRequested())
                 {
-                    customActions.WebCustomActions.Add(Copy(customAction));
+                    CustomActionModel copied = Copy(customAction);
+                    await PersistResourcesAsync(context, customAction, copied, template, creationInformation, siteScoped: false).ConfigureAwait(false);
+                    customActions.WebCustomActions.Add(copied);
                 }
 
                 // As on apply: a sub site's template does not carry the site collection's actions.
@@ -259,13 +297,15 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 {
                     foreach (IUserCustomAction customAction in context.Site.UserCustomActions.AsRequested())
                     {
-                        customActions.SiteCustomActions.Add(Copy(customAction));
+                        CustomActionModel copied = Copy(customAction);
+                        await PersistResourcesAsync(context, customAction, copied, template, creationInformation, siteScoped: true).ConfigureAwait(false);
+                        customActions.SiteCustomActions.Add(copied);
                     }
                 }
 
                 template.CustomActions = customActions;
 
-                ProvisioningTemplate baseTemplate = configuration?.ToCreationInformation()?.BaseTemplate;
+                ProvisioningTemplate baseTemplate = creationInformation?.BaseTemplate;
                 if (baseTemplate != null)
                 {
                     RemoveBaseTemplateEntries(context, template, baseTemplate, isSubSite);
@@ -331,9 +371,47 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                     : null,
             };
 
-            // MIGRATION PHASE 6: PersistMultiLanguageResources also wrote the title and description
-            // into the template's resource files here and replaced them with {res:} tokens. That
-            // needs the resource file plumbing ObjectLocalization owns.
+        }
+
+        /// <summary>
+        /// Reads a custom action's title and description in every supported language, records them
+        /// against a token, and replaces the literal value with that token.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Backlog T6</b>, the extract half. The token is only written when a language
+        /// actually had a value - a property with no translations keeps its plain text, because a
+        /// token that resolves to nothing would leave the target's action untitled.</para>
+        /// <para>The key has spaces replaced with underscores: a resx key with a space in it is
+        /// legal but awkward, and PnP Framework's own keys are formed this way - so a template
+        /// extracted by either tool uses the same names.</para>
+        /// </remarks>
+        private static async Task PersistResourcesAsync(PnPContext context, IUserCustomAction customAction,
+            CustomActionModel copied, ProvisioningTemplate template, ProvisioningTemplateCreationInformation creationInformation, bool siteScoped)
+        {
+            if (creationInformation?.PersistMultiLanguageResources != true || template.SupportedUILanguages.Count == 0)
+            {
+                return;
+            }
+
+            string key = customAction.Name.Replace(" ", "_");
+            (Guid siteId, Guid webId) = await CsomRequestSender.GetSiteAndWebIdAsync(context).ConfigureAwait(false);
+
+            UserResourcePath PathFor(string property) => siteScoped
+                ? UserResourcePath.ForSiteUserCustomAction(siteId, webId, customAction.Id, property)
+                : UserResourcePath.ForUserCustomAction(siteId, webId, customAction.Id, property);
+
+            string titleToken = $"CustomAction_{key}_Title";
+            if (await UserResources.PersistAsync(context, PathFor(ResourceProperty.Title), titleToken, template, creationInformation).ConfigureAwait(false))
+            {
+                copied.Title = UserResources.TokenFor(titleToken);
+            }
+
+            string descriptionToken = $"CustomAction_{key}_Description";
+            if (!string.IsNullOrWhiteSpace(customAction.Description)
+                && await UserResources.PersistAsync(context, PathFor(ResourceProperty.Description), descriptionToken, template, creationInformation).ConfigureAwait(false))
+            {
+                copied.Description = UserResources.TokenFor(descriptionToken);
+            }
         }
 
         #endregion
@@ -349,12 +427,6 @@ namespace PnP.Core.Provisioning.ObjectHandlers
 
             set(wanted);
             return true;
-        }
-
-        private static bool ContainsResourceToken(string value)
-        {
-            return !string.IsNullOrEmpty(value)
-                && value.IndexOf("{res:", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>

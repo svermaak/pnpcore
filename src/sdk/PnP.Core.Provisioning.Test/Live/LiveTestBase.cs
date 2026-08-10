@@ -69,6 +69,14 @@ namespace PnP.Core.Provisioning.Test.Live
                 {
                     lines.Add(error.Message);
                 }
+
+                // CsomError carries what SharePoint said in its ToString rather than in Message,
+                // so a CSOM failure reads as an empty banner without this.
+                string rendered = error.ToString();
+                if (!string.IsNullOrEmpty(rendered) && !lines.Contains(rendered))
+                {
+                    lines.Add(rendered);
+                }
             }
 
             for (Exception current = ex; current != null; current = current.InnerException)

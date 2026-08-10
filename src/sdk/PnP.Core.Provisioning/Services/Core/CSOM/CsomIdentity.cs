@@ -96,5 +96,19 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM
             return string.Format(CultureInfo.InvariantCulture,
                 "{0}|{1}:site:{2}:web:{3}:useraction:{4}", SessionPrefix, ApplicationId, siteId, webId, customActionId);
         }
+
+        /// <summary>
+        /// The identity of a user custom action, at site collection scope.
+        /// </summary>
+        /// <remarks>
+        /// Site and web scoped actions have <em>different</em> identities even when the ids look
+        /// alike, and addressing a site-scoped action through the web path resolves to nothing -
+        /// which SharePoint reports as a null object rather than an error.
+        /// </remarks>
+        internal static string SiteUserCustomAction(Guid siteId, Guid webId, Guid customActionId)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "{0}:useraction:{1}", Site(siteId, webId), customActionId);
+        }
     }
 }

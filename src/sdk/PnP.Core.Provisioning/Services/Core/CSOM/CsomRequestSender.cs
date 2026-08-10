@@ -1,8 +1,11 @@
+using Microsoft.Extensions.Logging;
 using PnP.Core.Model;
 using PnP.Core.Model.SharePoint;
 using PnP.Core.Services;
 using PnP.Core.Services.Core;
+using PnP.Core.Services.Core.CSOM;
 using PnP.Core.Services.Core.CSOM.Requests;
+using PnP.Core.Services.Core.CSOM.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -65,10 +68,18 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM
         /// Sends several CSOM requests in a single round trip.
         /// </summary>
         /// <remarks>
-        /// CSOM's own batching: the requests share one <c>ProcessQuery</c> POST, and each one's
-        /// <c>ProcessResponse</c> is called with the shared response body. Worth using wherever a
-        /// handler has independent work to do - provisioning a term set's labels, for instance -
-        /// since the round trip dominates the cost.
+        /// <para>CSOM's own batching: the requests share one <c>ProcessQuery</c> POST. Worth using
+        /// wherever a handler has independent work to do - a term set's labels, a title in fifty
+        /// languages - since the round trip dominates the cost.</para>
+        /// <para>🔴 <b>They are wrapped in a single composite, and that is not tidiness.</b> PnP
+        /// Core's batch handling calls <c>ProcessResponse</c> on <c>ApiCall.CSOMRequests[0]</c> only
+        /// (<c>BatchClient.ProcessCsomBatchResponse</c>). Passing several requests directly means the
+        /// first one reads its result and <b>every other one silently keeps its default</b> - which
+        /// looks exactly like a site that had nothing to return. A batched read of a title in 51
+        /// languages came back with one value and fifty blanks, and nothing anywhere reported a
+        /// problem.</para>
+        /// <para>The composite emits all their object paths from one <c>GetRequest</c> and fans the
+        /// response back out to each of them, so batching works for reads as well as writes.</para>
         /// </remarks>
         /// <param name="context">The context to send against</param>
         /// <param name="requests">The requests to send, in order</param>
@@ -84,9 +95,107 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM
                 throw new ArgumentException("At least one request is required.", nameof(requests));
             }
 
-            var apiCall = new ApiCall(requests);
+            var apiCall = new ApiCall(new List<IRequest<object>> { new CompositeRequest(requests) });
 
-            await (context.Web as Web).RawRequestAsync(apiCall, HttpMethod.Post).ConfigureAwait(false);
+            await SendWithSaveConflictRetryAsync(context, apiCall).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// How many times a save conflict is retried before giving up.
+        /// </summary>
+        private const int SaveConflictAttempts = 4;
+
+        /// <summary>
+        /// Sends the call, retrying the one error that is meant to be retried.
+        /// </summary>
+        /// <remarks>
+        /// <para>🔴 <b>The term store rejects concurrent writes with
+        /// <c>TermStoreErrorCodeEx: Term update failed because of save conflict</c>.</b> It is
+        /// optimistic concurrency, not a fault: the write was rejected outright, nothing partial
+        /// landed, and repeating it is the intended response.</para>
+        /// <para>This surfaced as two taxonomy tests that failed in a full run and passed in
+        /// isolation - which read as flakiness for three sessions. It is not flakiness: a real
+        /// template creating a term set with fifty terms writes to the same store as fast as it can
+        /// and will hit exactly this. Without the retry, provisioning taxonomy would fail
+        /// intermittently on any busy tenant.</para>
+        /// <para><b>Only save conflicts are retried.</b> Every other CSOM error may have partially
+        /// applied, and repeating those risks duplicating work.</para>
+        /// </remarks>
+        private static async Task SendWithSaveConflictRetryAsync(PnPContext context, ApiCall apiCall)
+        {
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    await (context.Web as Web).RawRequestAsync(apiCall, HttpMethod.Post).ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception ex) when (attempt < SaveConflictAttempts && IsSaveConflict(ex))
+                {
+                    // Back off a little each time; the store commits its pending change quickly.
+                    int delay = 500 * attempt;
+
+                    context.Logger?.LogInformation(
+                        "{Source}: the term store reported a save conflict; retrying in {Delay}ms (attempt {Attempt} of {Total}).",
+                        Constants.LOGGING_SOURCE, delay, attempt, SaveConflictAttempts);
+
+                    await Task.Delay(delay).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static bool IsSaveConflict(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
+            {
+                if (current is ServiceException serviceException
+                    && serviceException.Error?.ToString()?.IndexOf("save conflict", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Presents several CSOM requests to PnP Core as one, so all of them see the response.
+        /// </summary>
+        /// <remarks>
+        /// See the remarks on <see cref="SendManyAsync"/> for why this exists. Each child keeps its
+        /// own action ids - they come from the shared <see cref="IIdProvider"/> during
+        /// <see cref="GetRequest"/> - so each parses its own slice of the shared response.
+        /// </remarks>
+        private sealed class CompositeRequest : IRequest<object>
+        {
+            private readonly List<IRequest<object>> requests;
+
+            internal CompositeRequest(List<IRequest<object>> requests)
+            {
+                this.requests = requests;
+            }
+
+            public object Result => null;
+
+            public List<ActionObjectPath> GetRequest(IIdProvider idProvider)
+            {
+                var paths = new List<ActionObjectPath>();
+
+                foreach (IRequest<object> request in requests)
+                {
+                    paths.AddRange(request.GetRequest(idProvider));
+                }
+
+                return paths;
+            }
+
+            public void ProcessResponse(string response)
+            {
+                foreach (IRequest<object> request in requests)
+                {
+                    request.ProcessResponse(response);
+                }
+            }
         }
 
         /// <summary>

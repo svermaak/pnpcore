@@ -156,6 +156,21 @@ namespace PnP.Core.Provisioning.Model.Configuration
         /// </remarks>
         public ProvisioningTemplateCreationInformation ToCreationInformation(ProvisioningTemplate baseTemplate = null)
         {
+            // 🔴 The result is cached, and that is load bearing.
+            //
+            // ProvisioningTemplateCreationInformation is not only a projection of this configuration
+            // - it carries ResourceTokens, a list the handlers fill during an extract and that
+            // ObjectLocalization drains at the end to write the resource files. Returning a fresh
+            // instance per call gave every handler its own list, so the values were collected into
+            // objects nobody read and the extract produced tokens pointing at files that were never
+            // written. Nothing failed; the resource files were simply empty.
+            //
+            // Keyed on the base template because a caller may legitimately ask for both the diffed
+            // and the undiffed form in one run.
+            if (creationInformationCache.TryGetValue(baseTemplate ?? NoBaseTemplate, out ProvisioningTemplateCreationInformation cached))
+            {
+                return cached;
+            }
 
             var ci = new ProvisioningTemplateCreationInformation()
             {
@@ -224,8 +239,37 @@ namespace PnP.Core.Provisioning.Model.Configuration
                 };
             }
 
+            creationInformationCache[baseTemplate ?? NoBaseTemplate] = ci;
 
             return ci;
+        }
+
+        /// <summary>
+        /// Stands in for "no base template" so the cache can be keyed without a null.
+        /// </summary>
+        private static readonly ProvisioningTemplate NoBaseTemplate = new ProvisioningTemplate();
+
+        private readonly Dictionary<ProvisioningTemplate, ProvisioningTemplateCreationInformation> creationInformationCache
+            = new Dictionary<ProvisioningTemplate, ProvisioningTemplateCreationInformation>(TemplateReferenceComparer.Instance);
+
+        /// <summary>
+        /// Compares templates by reference.
+        /// </summary>
+        /// <remarks>
+        /// <para><c>ProvisioningTemplate</c> overrides <c>Equals</c> and <c>GetHashCode</c> with a
+        /// <em>deep</em> comparison across every collection it owns. Using it as a dictionary key
+        /// with the default comparer would hash the entire template on every lookup, and would treat
+        /// two structurally identical base templates as the same cache entry.</para>
+        /// <para><c>ReferenceEqualityComparer</c> would do this, but it does not exist on
+        /// <c>netstandard2.0</c>.</para>
+        /// </remarks>
+        private sealed class TemplateReferenceComparer : IEqualityComparer<ProvisioningTemplate>
+        {
+            internal static readonly TemplateReferenceComparer Instance = new TemplateReferenceComparer();
+
+            public bool Equals(ProvisioningTemplate x, ProvisioningTemplate y) => ReferenceEquals(x, y);
+
+            public int GetHashCode(ProvisioningTemplate obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
         }
 
         public static ExtractConfiguration FromString(string input)

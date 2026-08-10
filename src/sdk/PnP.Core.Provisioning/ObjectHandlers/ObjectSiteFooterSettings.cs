@@ -155,7 +155,8 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 return;
             }
 
-            foreach (MenuNode node in menuNode.Nodes)
+            // A node the endpoint still lists as deleted is not part of the footer.
+            foreach (MenuNode node in menuNode.Nodes.Where(n => !n.IsDeleted))
             {
                 footer.FooterLinks.Add(ToFooterLink(node, template, webServerRelativeUrl));
             }
@@ -286,7 +287,21 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             }
             else if (footer.RemoveExistingNodes)
             {
-                menuNode.Nodes.Clear();
+                // 🔴 Marked deleted, NOT dropped from the array.
+                //
+                // SaveMenuState MERGES: a node the post leaves out is kept, not removed. Clearing
+                // the list therefore removed nothing and the new links were appended to the old
+                // ones - so every apply doubled the footer. A live test found this only after the
+                // link count had reached 501.
+                //
+                // IsDeleted is what the endpoint reads. A node created in this run has no Key yet
+                // and cannot be deleted server side, so only the existing ones are marked.
+                foreach (MenuNode existing in menuNode.Nodes.Where(n => !string.IsNullOrEmpty(n.Key)))
+                {
+                    existing.IsDeleted = true;
+                }
+
+                menuNode.Nodes.RemoveAll(n => string.IsNullOrEmpty(n.Key));
             }
 
             if (footer.FooterLinks == null)

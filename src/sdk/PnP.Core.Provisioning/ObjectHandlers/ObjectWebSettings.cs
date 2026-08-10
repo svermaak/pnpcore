@@ -194,7 +194,7 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             {
                 // SiteLogoUrl may be absolute - communication sites store it that way
                 var webUri = new Uri(web.Url.ToString());
-                candidates.Add(web.SiteLogoUrl.Replace($"{webUri.Scheme}://{webUri.DnsSafeHost}", "", StringComparison.OrdinalIgnoreCase));
+                candidates.Add(RemoveIgnoreCase(web.SiteLogoUrl, $"{webUri.Scheme}://{webUri.DnsSafeHost}"));
             }
 
             if (!string.IsNullOrEmpty(web.AlternateCssUrl))
@@ -271,7 +271,7 @@ namespace PnP.Core.Provisioning.ObjectHandlers
 
                 // Site relative container, which may legitimately end up empty
                 string container = Uri.UnescapeDataString(
-                    folderPath.Replace(web.ServerRelativeUrl, "", StringComparison.OrdinalIgnoreCase)).Trim('/').Replace("/", "\\");
+                    RemoveIgnoreCase(folderPath, web.ServerRelativeUrl)).Trim('/').Replace("/", "\\");
 
                 using (Stream content = await file.GetContentAsync(true).ConfigureAwait(false))
                 {
@@ -313,7 +313,7 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             string fileName = fullUri.Segments[fullUri.Segments.Length - 1];
 
             // Store as a site relative path
-            folderPath = folderPath.Replace(web.ServerRelativeUrl, "", StringComparison.OrdinalIgnoreCase).Trim('/');
+            folderPath = RemoveIgnoreCase(folderPath, web.ServerRelativeUrl).Trim('/');
 
             return new TemplateFile
             {
@@ -694,6 +694,23 @@ namespace PnP.Core.Provisioning.ObjectHandlers
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// Removes every case-insensitive occurrence of a substring.
+        /// </summary>
+        /// <remarks>
+        /// <c>string.Replace(a, b, StringComparison)</c> does not exist on <c>netstandard2.0</c>,
+        /// which this project still targets - and building only the modern TFM hides that.
+        /// </remarks>
+        private static string RemoveIgnoreCase(string value, string toRemove)
+        {
+            if (string.IsNullOrEmpty(value) || string.IsNullOrEmpty(toRemove))
+            {
+                return value;
+            }
+
+            return Regex.Replace(value, Regex.Escape(toRemove), string.Empty, RegexOptions.IgnoreCase);
+        }
 
         private static void SetIfChanged(bool current, bool wanted, Action<bool> set)
         {

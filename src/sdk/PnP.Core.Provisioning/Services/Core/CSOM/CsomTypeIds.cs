@@ -48,6 +48,28 @@ namespace PnP.Core.Provisioning.Services.Core.CSOM
 
         #endregion
 
+        #region Lists - Microsoft.SharePoint.Client
+
+        /// <summary>
+        /// SP.ListCreationInformation - the value object <c>Web.Lists.Add</c> takes.
+        /// </summary>
+        /// <remarks>
+        /// Needed because PnP Core's <c>IListCollection.AddAsync</c> takes only a title and a
+        /// template type. A provisioning template also carries the list's <b>Url</b> - which is its
+        /// real identity, is routinely different from the title, and is what every
+        /// <c>{listurl:…}</c> token and lookup field resolves against - as well as a description,
+        /// a quick launch choice and, for custom <c>.stp</c> templates, a feature id.
+        /// </remarks>
+        internal const string ListCreationInformation = "{e247b7fc-095e-4ea4-a4c9-c5d373723d8c}";
+
+        /// <summary>SP.ViewCreationInformation</summary>
+        internal const string ViewCreationInformation = "{a3547807-7266-42f3-b055-afa6e840e458}";
+
+        /// <summary>SP.ListItemCreationInformation</summary>
+        internal const string ListItemCreationInformation = "{54cdbee5-0897-44ac-829f-411557fa11be}";
+
+        #endregion
+
         #region Publishing - Microsoft.SharePoint.Client.Publishing
 
         /// <summary>SP.Publishing.SiteImageRenditions</summary>
