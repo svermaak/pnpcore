@@ -306,6 +306,46 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 objectHandlers.Add(new ObjectCustomActions());
             }
 
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Pages))
+            {
+                objectHandlers.Add(new ObjectPages());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Navigation))
+            {
+                objectHandlers.Add(new ObjectNavigation());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Workflows))
+            {
+                objectHandlers.Add(new ObjectWorkflows());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.Publishing))
+            {
+                objectHandlers.Add(new ObjectPublishing());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.ComposedLook))
+            {
+                objectHandlers.Add(new ObjectComposedLook());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.AuditSettings))
+            {
+                objectHandlers.Add(new ObjectAuditSettings());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SitePolicy))
+            {
+                objectHandlers.Add(new ObjectSitePolicy());
+            }
+
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.ImageRenditions))
+            {
+                objectHandlers.Add(new ObjectImageRenditions());
+            }
+
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.TermGroups))
             {
                 objectHandlers.Add(new ObjectTermGroups());
@@ -477,6 +517,41 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             if (all || configuration.Handlers.Contains(ConfigurationHandler.CustomActions))
             {
                 objectHandlers.Add(new ObjectCustomActions());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.Navigation))
+            {
+                objectHandlers.Add(new ObjectNavigation());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.Workflows))
+            {
+                objectHandlers.Add(new ObjectWorkflows());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.Publishing))
+            {
+                objectHandlers.Add(new ObjectPublishing());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.ComposedLook))
+            {
+                objectHandlers.Add(new ObjectComposedLook());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.AuditSettings))
+            {
+                objectHandlers.Add(new ObjectAuditSettings());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.SitePolicy))
+            {
+                objectHandlers.Add(new ObjectSitePolicy());
+            }
+
+            if (all || configuration.Handlers.Contains(ConfigurationHandler.ImageRenditions))
+            {
+                objectHandlers.Add(new ObjectImageRenditions());
             }
 
             if (all || configuration.Handlers.Contains(ConfigurationHandler.Taxonomy))

@@ -411,7 +411,14 @@ namespace PnP.Core.Provisioning.ObjectHandlers
         /// </remarks>
         internal static bool IsSubSite(IWeb web)
         {
-            if (web?.ServerRelativeUrl == null)
+            // Both sides are guarded. The site side always was; the web side was not, and read
+            // straight through to "Property ServerRelativeUrl was not yet loaded" - which is a
+            // throw from a method whose whole contract is to answer false when it cannot tell.
+            // Any handler calling this from WillProvision, before the engine has loaded the web,
+            // hit it.
+            if (web == null
+                || !web.IsPropertyAvailable(w => w.ServerRelativeUrl)
+                || web.ServerRelativeUrl == null)
             {
                 return false;
             }
