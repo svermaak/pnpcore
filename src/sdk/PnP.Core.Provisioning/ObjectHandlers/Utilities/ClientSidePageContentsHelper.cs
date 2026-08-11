@@ -792,6 +792,17 @@ namespace PnP.Core.Provisioning.ObjectHandlers.Utilities
                 return html;
             }
 
+            // Guarded rather than assumed loaded. This is deep inside the extract and the property is
+            // only read here, so on a context whose first operation is a page extract it has never
+            // been loaded and the getter throws - taking the whole extract with it. The per-handler
+            // tests never saw it because they run against a context that has done other work first;
+            // phase 9's scenario 2, which extracts through a context of its own, found it at once.
+            if (!context.Web.IsPropertyAvailable(w => w.ServerRelativeUrl)
+                || string.IsNullOrEmpty(context.Web.ServerRelativeUrl))
+            {
+                return html;
+            }
+
             return Regex.Replace(html, "href=\"" + context.Web.ServerRelativeUrl, "href=\"{site}", RegexOptions.IgnoreCase);
         }
 

@@ -146,6 +146,13 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 bool includeAllPages = configuration?.Pages?.IncludeAllClientSidePages ?? false;
                 var helper = new ClientSidePageContentsHelper();
 
+                // Loaded once, here, because the extract tokenizes every site relative link it finds
+                // in a text control against it. Reading it lazily deep inside that loop throws on a
+                // context whose first operation is an extract, and skipping the tokenization instead
+                // would quietly emit a template full of absolute urls that only work on the site it
+                // came from.
+                await context.Web.LoadAsync(w => w.ServerRelativeUrl).ConfigureAwait(false);
+
                 int currentPageIndex = 1;
                 foreach (PageToExport page in pagesToExport.OrderBy(p => p.IsTranslation))
                 {

@@ -229,6 +229,19 @@ namespace PnP.Core.Provisioning.ObjectHandlers
                 objectHandlers.Add(new ObjectFeatures());
             }
 
+            // Term groups come before the fields, and this is load bearing in the same way the three
+            // passes below are: a taxonomy site column binds to its term set by id, so a template
+            // that defines both fails outright if the field is created first - SharePoint rejects
+            // the column's schema rather than creating a broken one. PnP Framework orders it the same
+            // way (SiteToTemplateConversion.cs, TermGroups at :390 ahead of Fields at :395).
+            //
+            // This was the other way round until scenario 5 caught it. No per-handler test could
+            // have: ObjectTermGroups and ObjectField each worked perfectly on their own.
+            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.TermGroups))
+            {
+                objectHandlers.Add(new ObjectTermGroups());
+            }
+
             // The three passes. ObjectField, ObjectContentType and ObjectListInstance are each
             // registered more than once with a different Step, because a lookup column cannot be
             // created before the list it points at and a template routinely defines both.
@@ -362,11 +375,6 @@ namespace PnP.Core.Provisioning.ObjectHandlers
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.ImageRenditions))
             {
                 objectHandlers.Add(new ObjectImageRenditions());
-            }
-
-            if (applyingInformation.HandlersToProcess.HasFlag(Handlers.TermGroups))
-            {
-                objectHandlers.Add(new ObjectTermGroups());
             }
 
             if (applyingInformation.HandlersToProcess.HasFlag(Handlers.SiteSecurity))
