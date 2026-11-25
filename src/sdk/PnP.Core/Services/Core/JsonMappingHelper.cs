@@ -404,8 +404,22 @@ namespace PnP.Core.Services
             // For Lookup, LookupMulti, User and UserMulti fields we use the "Id" field
             if (field == null && propertyName.EndsWith("Id") && propertyName.Length > 2)
             {
-                propertyName = propertyName.Substring(0, propertyName.Length - 2);
-                field = await GetListItemFieldAsync(pnpObject, propertyName).ConfigureAwait(false);
+                string candidateFieldName = propertyName.Substring(0, propertyName.Length - 2);
+                field = await GetListItemFieldAsync(pnpObject, candidateFieldName).ConfigureAwait(false);
+
+                if (field != null)
+                {
+                    propertyName = candidateFieldName;
+                }
+                else
+                {
+                    // SharePoint does not send the "<field>Id" companion for a hidden user field, it only sends
+                    // "<field>StringId", so without this the value never gets mapped to the field. The caller keeps
+                    // the first value it sees for a field name, so when both companions are present the "Id" one
+                    // still wins. User and UserMulti only: FieldLookupValue.FromJson does not read a string id,
+                    // so routing a lookup through here would turn its value into -1.
+                    (field, propertyName) = await GetUserFieldFromStringIdAsync(pnpObject, candidateFieldName, propertyName).ConfigureAwait(false);
+                }
             }
 
             if (field != null)
@@ -572,6 +586,34 @@ namespace PnP.Core.Services
             }
 
             return new Tuple<object, string>(null, null);
+        }
+
+        /// <summary>
+        /// Resolves the User or UserMulti field behind a "&lt;field&gt;StringId" property, the only companion
+        /// property SharePoint returns for a hidden user field
+        /// </summary>
+        /// <param name="pnpObject">List item the property belongs to</param>
+        /// <param name="candidateFieldName">Property name with the trailing "Id" already removed</param>
+        /// <param name="propertyName">Property name to keep when no user field is found</param>
+        /// <returns>The matching user field with its internal name, or null with the property name unchanged</returns>
+        private async static Task<Tuple<IField, string>> GetUserFieldFromStringIdAsync(TransientObject pnpObject, string candidateFieldName, string propertyName)
+        {
+            const string stringSuffix = "String";
+
+            if (!candidateFieldName.EndsWith(stringSuffix) || candidateFieldName.Length == stringSuffix.Length)
+            {
+                return new Tuple<IField, string>(null, propertyName);
+            }
+
+            string fieldName = candidateFieldName.Substring(0, candidateFieldName.Length - stringSuffix.Length);
+            var field = await GetListItemFieldAsync(pnpObject, fieldName).ConfigureAwait(false);
+
+            if (field == null || (field.TypeAsString != "User" && field.TypeAsString != "UserMulti"))
+            {
+                return new Tuple<IField, string>(null, propertyName);
+            }
+
+            return new Tuple<IField, string>(field, fieldName);
         }
 
         private async static Task<IField> GetListItemFieldAsync(TransientObject pnpObject, string fieldName)
